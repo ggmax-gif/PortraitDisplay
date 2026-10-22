@@ -14,7 +14,6 @@ import CoreGraphics
 ///   s b x y dx dy | s c dx dy | s e       scroll (finger drag), deltas as fractions of the stream
 ///   s mb dx dy | s mc dx dy | s me        momentum after the fingers lift
 final class InputInjector {
-    private let displayID: CGDirectDisplayID
     private let queue = DispatchQueue(label: "portrait.input")
     private let source = CGEventSource(stateID: .hidSystemState)
     // Only touched on `queue`.
@@ -22,10 +21,14 @@ final class InputInjector {
     private var lastClick: (time: TimeInterval, point: CGPoint, button: CGMouseButton, count: Int64)?
     private var scrollRemainder = CGPoint.zero
     private var scrolling = false, coasting = false   // a scroll / momentum phase is open
+    private var displayID: CGDirectDisplayID?        // nil while there is no virtual display
 
-    init(displayID: CGDirectDisplayID) {
-        self.displayID = displayID
+    /// The display changes ID every time it is created (--on-demand).
+    func setDisplay(_ id: CGDirectDisplayID?) {
+        queue.async { self.displayID = id }
     }
+
+    private var bounds: CGRect { displayID.map(CGDisplayBounds) ?? .zero }
 
     /// True if events will be delivered. Otherwise asks macOS to show the permission prompt.
     static func ensurePermission() -> Bool {
@@ -59,7 +62,7 @@ final class InputInjector {
             guard i < f.count, let v = Double(f[i]), v.isFinite else { return 0 }
             return min(max(v, -100), 100)
         }
-        guard f.count >= 2 else { return }
+        guard f.count >= 2, displayID != nil else { return }
 
         switch f[0] {
         case "c":
@@ -112,7 +115,7 @@ final class InputInjector {
     // MARK: Helpers
 
     private func point(_ x: Double, _ y: Double) -> CGPoint {
-        let b = CGDisplayBounds(displayID)
+        let b = bounds
         let cx = min(max(x, 0), 1), cy = min(max(y, 0), 1)
         return CGPoint(x: min(b.minX + cx * b.width, b.maxX - 1), y: min(b.minY + cy * b.height, b.maxY - 1))
     }
@@ -157,7 +160,7 @@ final class InputInjector {
         if let phase = phase { scrolling = phase != .ended }
         if let momentum = momentum { coasting = momentum != .end }
         // Deltas arrive as fractions of the stream; convert to points, carrying the sub-point rest.
-        let b = CGDisplayBounds(displayID)
+        let b = bounds
         let x = dx * b.width + scrollRemainder.x, y = dy * b.height + scrollRemainder.y
         let ix = Int32(x.rounded(.towardZero)), iy = Int32(y.rounded(.towardZero))
         scrollRemainder = CGPoint(x: x - Double(ix), y: y - Double(iy))

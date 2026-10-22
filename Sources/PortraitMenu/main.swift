@@ -59,6 +59,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        let onDemand = item("Show Display Only While iPad Is Connected", #selector(toggleOnDemand))
+        onDemand.state = HostProcess.onDemand ? .on : .off
+        menu.addItem(onDemand)
         menu.addItem(item("Show Log", #selector(showLog)))
         let login = item("Launch at Login", #selector(toggleLaunchAtLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -74,6 +77,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .starting: return "Starting…"
         case .running:
             switch host.viewers {
+            case 0 where !host.displayOn: return "Ready – open the link on the iPad"
+            case 0 where HostProcess.onDemand: return "On – iPad gone, display closes soon"
             case 0: return "On – waiting for the iPad"
             case 1: return "On – iPad connected"
             default: return "On – \(host.viewers) iPads connected"
@@ -146,6 +151,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openAccessibility() {
         openSettings("Privacy_Accessibility")
+    }
+
+    @objc private func toggleOnDemand() {
+        HostProcess.onDemand.toggle()
+        host.restart()
     }
 
     @objc private func showLog() {

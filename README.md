@@ -30,6 +30,11 @@ This builds **Portrait Display.app** into `~/Applications` and puts an iPad icon
 with Start / Stop, the iPad link (copy it or show it as a QR code to scan), whether the iPad is
 connected, the latest stats, and Launch at Login. The icon is dimmed while it's off.
 
+Like Sidecar, the "Portrait iPad" display only exists while the iPad is connected: Start just gets
+the Mac ready, the display appears when you open the page on the iPad, and it goes away 15 s after
+the iPad leaves (closing the page, locking it for longer). Windows on it move back to the MacBook.
+Turn off **Show Display Only While iPad Is Connected** in the menu to keep it from Start to Stop.
+
 The app needs its own permissions (not Terminal's): Screen & System Audio Recording, and
 Accessibility for touch input. If Start fails, the alert has a button to the right settings page.
 The script signs the app with a local certificate kept in `~/.portraitdisplay/signing`, so
@@ -99,6 +104,7 @@ Other options (`--help` lists them all):
 | `--port 9090` | 8080 | Uses this port and the next two (8080–8082). Change if they're taken |
 | `--no-hidpi` | off | Bigger UI, less sharp |
 | `--no-input` | off | Ignore touch and Pencil (view only) |
+| `--on-demand` | off | Display only while an iPad is connected, removed 15 s after it leaves (the menu bar app's default) |
 
 ## Notes
 

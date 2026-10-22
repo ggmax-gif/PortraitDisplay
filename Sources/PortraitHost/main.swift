@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 setvbuf(stdout, nil, _IOLBF, 0)
 
@@ -15,10 +15,6 @@ if config.statusLines {
     if getppid() == 1 { exit(0) }
 }
 let token = TokenStore.loadOrCreate()
-
-guard let virtualDisplay = VirtualDisplay(config: config) else {
-    fail("macOS refused to create the virtual display.")
-}
 
 // Only private addresses: the iPad trusts the certificate for those and nothing else.
 let addresses = localIPv4Addresses().filter { Certificates.isPermitted($0.address) }
@@ -55,8 +51,12 @@ server.macStats = {
                   Double(s.captured) / t, Double(s.encoded) / t, encoder.codec.name, s.encodeMs)
 }
 
+let displays = DisplayController(config: config, capturer: capturer)
+server.onViewerCount = { count in DispatchQueue.main.async { displays.viewersChanged(count) } }
+
 if config.input {
-    let injector = InputInjector(displayID: virtualDisplay.displayID)
+    let injector = InputInjector()
+    displays.onDisplay = { injector.setDisplay($0) }
     server.onInput = { injector.handle($0) }
     server.onViewerGone = { injector.release() }
     if !InputInjector.ensurePermission() {
@@ -70,29 +70,7 @@ if config.input {
     }
 }
 
-// Give macOS a moment to register the new display, then pick its mode and start capturing.
-DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-    virtualDisplay.selectPreferredMode()
-    print("Virtual display \"\(config.name)\": \(virtualDisplay.currentModeDescription)")
-    capturer.start(displayID: virtualDisplay.displayID) { error in
-        if let error = error {
-            print("""
-
-            Couldn't capture the screen: \(error.localizedDescription)
-
-            Give Terminal permission: System Settings → Privacy & Security →
-            Screen & System Audio Recording → switch on Terminal, then quit
-            Terminal completely and run this again.
-            """)
-            Status.emit("error", "capture: \(error.localizedDescription)")
-            exit(1)
-        }
-        Status.emit("running", virtualDisplay.currentModeDescription)
-        let codec = config.codec == .hevc ? "HEVC (H.264 for iPads without it)" : "H.264"
-        print("Capturing at up to \(config.fps) fps, \(codec) \(config.streamWidth)×\(config.streamHeight) px, "
-              + "max \(Int(config.bitrateMbps)) Mbit/s.")
-    }
-}
+displays.update()   // creates the display now, unless --on-demand
 
 print("""
 
@@ -113,14 +91,20 @@ print("""
  Add it to the Home Screen from there (Share → Add to Home Screen).
  Move windows onto "\(config.name)" like any other monitor
  (arrange it in System Settings → Displays → Arrange…).
- Press Ctrl+C here to stop – the virtual display goes away.
+\(config.onDemand
+    ? " The display appears when the iPad connects and goes away \(Int(DisplayController.linger)) s after it leaves."
+    : " Press Ctrl+C here to stop – the virtual display goes away.")
 ────────────────────────────────────────────────────────
 
 """)
+Status.emit("running")
 
 signal(SIGINT) { _ in
     print("\nStopped.")
     exit(0)
 }
 
-dispatchMain()
+// An AppKit run loop rather than dispatchMain(): without it this process never hears about display
+// changes, and a re-created virtual display (--on-demand) has no modes to choose from.
+NSApplication.shared.setActivationPolicy(.prohibited)
+NSApplication.shared.run()

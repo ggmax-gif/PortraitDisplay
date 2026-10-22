@@ -20,9 +20,11 @@ BIN=$(swift build -c release --show-bin-path)
 
 APP="build/$APP_NAME.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+# The host goes in Helpers, not MacOS: it runs an AppKit run loop, and from Contents/MacOS macOS
+# would register it as a second "Portrait Display" (same bundle ID), so a Quit could reach it instead.
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers"
 cp "$BIN/PortraitMenu" "$APP/Contents/MacOS/PortraitDisplay"
-cp "$BIN/PortraitHost" "$APP/Contents/MacOS/PortraitHost"
+cp "$BIN/PortraitHost" "$APP/Contents/Helpers/PortraitHost"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -74,7 +76,7 @@ security unlock-keychain -p "" "$KEYCHAIN"
 
 # Helper first, then the bundle (whose signature covers the helper).
 codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" --identifier "$BUNDLE_ID.host" \
-    "$APP/Contents/MacOS/PortraitHost"
+    "$APP/Contents/Helpers/PortraitHost"
 codesign --force --keychain "$KEYCHAIN" --sign "$IDENTITY" "$APP"
 codesign --verify --strict "$APP"
 

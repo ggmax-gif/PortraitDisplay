@@ -15,6 +15,7 @@ final class StreamServer {
     var macStats: (() -> String)?      // capture / encode part of the stats line
     var onRoom: (() -> Void)?          // an iPad can take more frames again
     var onViewerGone: (() -> Void)?    // an authenticated iPad disconnected
+    var onViewerCount: ((Int) -> Void)?   // authenticated iPads, after each connect / disconnect
     var onCodecWanted: ((VideoCodec) -> Void)?
     private var wantedCodec: VideoCodec
     private let slotsLock = NSLock()
@@ -141,6 +142,7 @@ final class StreamServer {
         print("iPad connected (\(endpointName(viewer.connection)), "
               + "\(viewer.decodesHEVC ? "decodes HEVC" : "H.264 only")). Viewers: \(authenticatedCount)")
         Status.emit("viewers", String(authenticatedCount))
+        onViewerCount?(authenticatedCount)
         chooseCodec()
     }
 
@@ -162,6 +164,7 @@ final class StreamServer {
         if wasAuthenticated {
             print("iPad disconnected. Viewers: \(authenticatedCount)")
             Status.emit("viewers", String(authenticatedCount))
+            onViewerCount?(authenticatedCount)
             chooseCodec()
             onViewerGone?()
         }

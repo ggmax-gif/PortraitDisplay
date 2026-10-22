@@ -22,7 +22,9 @@ enum HostError: LocalizedError {
 final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
     private let config: Config
     private let encoder: VideoEncoder
+    // Main queue only: the running stream, and the display it should capture (nil once stopped).
     private var stream: SCStream?
+    private var target: CGDirectDisplayID?
     private let sampleQueue = DispatchQueue(label: "portrait.capture")
     // All below only touched on sampleQueue.
     private var latest: CVPixelBuffer?
@@ -60,45 +62,74 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
+    /// Call on the main queue. `completion` runs on it too, unless `stop()` came first.
     func start(displayID: CGDirectDisplayID, attempt: Int = 0, completion: @escaping (Error?) -> Void) {
+        if attempt == 0 { target = displayID }
         SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: false) { content, error in
-            if let error = error {
-                completion(error)
-                return
-            }
-            guard let display = content?.displays.first(where: { $0.displayID == displayID }) else {
-                if attempt < 40 {
+            DispatchQueue.main.async {
+                guard self.target == displayID else { return }   // stopped meanwhile
+                if let error = error {
+                    completion(error)
+                } else if let display = content?.displays.first(where: { $0.displayID == displayID }) {
+                    self.capture(display, completion: completion)
+                } else if attempt < 40 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         self.start(displayID: displayID, attempt: attempt + 1, completion: completion)
                     }
                 } else {
                     completion(HostError.displayNotVisible)
                 }
-                return
             }
-
-            let filter = SCContentFilter(display: display, excludingWindows: [])
-            let sc = SCStreamConfiguration()
-            sc.width = self.config.streamWidth
-            sc.height = self.config.streamHeight
-            sc.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(self.config.fps))
-            // Hand the encoder YUV directly, with the same BT.709 matrix the encoder tags the stream with.
-            sc.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-            sc.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
-            sc.colorSpaceName = CGColorSpace.sRGB
-            sc.showsCursor = true
-            sc.queueDepth = 5
-
-            let stream = SCStream(filter: filter, configuration: sc, delegate: self)
-            do {
-                try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.sampleQueue)
-            } catch {
-                completion(error)
-                return
-            }
-            self.stream = stream
-            stream.startCapture { error in completion(error) }
         }
+    }
+
+    private func capture(_ display: SCDisplay, completion: @escaping (Error?) -> Void) {
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let sc = SCStreamConfiguration()
+        sc.width = config.streamWidth
+        sc.height = config.streamHeight
+        sc.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(config.fps))
+        // Hand the encoder YUV directly, with the same BT.709 matrix the encoder tags the stream with.
+        sc.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        sc.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
+        sc.colorSpaceName = CGColorSpace.sRGB
+        sc.showsCursor = true
+        sc.queueDepth = 5
+
+        let stream = SCStream(filter: filter, configuration: sc, delegate: self)
+        do {
+            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
+        } catch {
+            completion(error)
+            return
+        }
+        stream.startCapture { error in
+            DispatchQueue.main.async {
+                guard self.target == display.displayID else {   // stopped while starting
+                    if error == nil { stream.stopCapture { _ in } }
+                    return
+                }
+                if error == nil { self.stream = stream }
+                completion(error)
+            }
+        }
+    }
+
+    /// Call on the main queue. Capture has to stop before its display is removed; `completion`
+    /// (on the main queue) runs once it has, and the last frame is forgotten.
+    func stop(completion: @escaping () -> Void) {
+        target = nil
+        let finish = {
+            self.sampleQueue.async {
+                self.latest = nil
+                self.idleRefresh?.cancel()
+                self.encodeLatestWhenFree = false
+                DispatchQueue.main.async(execute: completion)
+            }
+        }
+        guard let stream = stream else { finish(); return }
+        self.stream = nil
+        stream.stopCapture { _ in finish() }
     }
 
     // MARK: SCStreamOutput
@@ -126,9 +157,12 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
     // MARK: SCStreamDelegate
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        print("Screen capture stopped: \(error.localizedDescription)")
-        Status.emit("error", "Screen capture stopped: \(error.localizedDescription)")
-        exit(1)
+        DispatchQueue.main.async {
+            guard stream === self.stream else { return }   // one we stopped, or one that never started
+            print("Screen capture stopped: \(error.localizedDescription)")
+            Status.emit("error", "Screen capture stopped: \(error.localizedDescription)")
+            exit(1)
+        }
     }
 
     /// Frames captured and encoded since the last call, and the average encode time.

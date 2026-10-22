@@ -13,6 +13,7 @@ struct Config {
     var httpPort: UInt16 = 8080
     var name = "Portrait iPad"
     var statusLines = false    // set by the menu bar app
+    var onDemand = false       // virtual display only while an iPad is connected
 
     var pagePort: UInt16 { httpPort &+ 1 }   // HTTPS viewer page
     var wsPort: UInt16 { httpPort &+ 2 }     // secure WebSocket
@@ -41,6 +42,8 @@ struct Config {
       --port <n>           Setup page port; also uses port+1, +2    (default 8080)
       --no-hidpi           Non-Retina virtual display (bigger UI, blurrier text)
       --no-input           View only: ignore touch and Pencil from the iPad
+      --on-demand          Only show the virtual display while an iPad is connected
+                           (it goes away 15 s after the last one leaves)
       --status-lines       Also print "@key value" lines (used by the menu bar app)
       --help               Show this help
     """
@@ -67,6 +70,7 @@ struct Config {
             case "--no-hidpi": c.hiDPI = false
             case "--no-input": c.input = false
             case "--status-lines": c.statusLines = true
+            case "--on-demand": c.onDemand = true
             case "--help", "-h": print(usage); exit(0)
             default: fail("Unknown option \(args[i])\n\n\(usage)")
             }
@@ -93,7 +97,7 @@ func fail(_ message: String) -> Never {
 }
 
 /// With --status-lines, "@key value" lines next to the normal output, for the menu bar app to read.
-/// Keys: url, running, viewers, stats, needs-accessibility, error.
+/// Keys: url, running, display (on / off), viewers, stats, needs-accessibility, error.
 enum Status {
     static var enabled = false
 
