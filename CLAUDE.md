@@ -37,6 +37,10 @@ Not for the App Store, because it uses a private API.
   (decode time) and input messages (`c`/`p`/`s …`). At most 4 unacked frames per iPad.
   Every 2 s while frames flow, a stats line (capture, encode, sent/skipped, Mbit/s, ack round trip,
   iPad decode) is printed and shown on the overlay. Use it before guessing at performance.
+  Its "encoded in N ms" is almost all VideoToolbox: everything after the encoder's callback (copy,
+  server queue, send) measured 0.1 ms. The encoder itself takes ~10 ms at 2048×2668, but the same
+  build measured 26–43 ms in some runs. Not explained by App Nap, colour tags, capture buffers,
+  or GPU / memory load (all tested); cause outside the process. `EnableLowLatencyRateControl` is slower (12.5 ms).
 - `SetupPage.swift` / `ViewerPage.swift`: the iPad pages, raw Swift strings with `__PLACEHOLDER__`s.
   The setup page forwards to HTTPS once the cert is trusted. The viewer decodes with `VideoDecoder`
   and draws the newest frame on a canvas (reconnect, wake lock, overlay showing the iPad's size).
