@@ -32,7 +32,7 @@ struct Config {
                            iPad's own size; pass those numbers for a perfect fit.
       --scale <n>          Stream pixels per point, 1 – 2           (default 2 = sharpest)
       --bitrate <mbps>     H.264 bitrate cap in Mbit/s, 2 – 40      (default 20)
-      --fps <n>            Max frames per second                    (default 60)
+      --fps <n>            Max frames per second, up to 120         (default 60)
       --port <n>           Setup page port; also uses port+1, +2    (default 8080)
       --no-hidpi           Non-Retina virtual display (bigger UI, blurrier text)
       --help               Show this help
@@ -52,7 +52,7 @@ struct Config {
             case "--height":  c.heightPoints = intArg(value(), 200...4000)
             case "--scale":   c.streamScale = doubleArg(value(), 0.5...2.0)
             case "--bitrate": c.bitrateMbps = doubleArg(value(), 2...40)
-            case "--fps":     c.fps = intArg(value(), 1...60)
+            case "--fps":     c.fps = intArg(value(), 1...120)
             case "--port":    c.httpPort = UInt16(intArg(value(), 1024...65000))
             case "--no-hidpi": c.hiDPI = false
             case "--help", "-h": print(usage); exit(0)

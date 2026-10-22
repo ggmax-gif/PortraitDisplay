@@ -35,13 +35,15 @@ final class VirtualDisplay {
 
         let settings = CGVirtualDisplaySettings()
         settings.hiDPI = config.hiDPI ? 1 : 0
+        // Screen capture only delivers frames as often as the display refreshes.
+        let refreshRate: Double = config.fps > 60 ? 120 : 60
         var modes = [CGVirtualDisplayMode(width: UInt(config.widthPoints),
                                           height: UInt(config.heightPoints),
-                                          refreshRate: 60)]
+                                          refreshRate: refreshRate)]
         if config.hiDPI {
             modes.insert(CGVirtualDisplayMode(width: UInt(pixelsWide),
                                               height: UInt(pixelsHigh),
-                                              refreshRate: 60), at: 0)
+                                              refreshRate: refreshRate), at: 0)
         }
         settings.modes = modes
         guard display.applySettings(settings) else { return nil }
@@ -64,6 +66,6 @@ final class VirtualDisplay {
     var currentModeDescription: String {
         guard let mode = CGDisplayCopyDisplayMode(displayID) else { return "unknown" }
         let retina = mode.pixelWidth > mode.width ? " (Retina, \(mode.pixelWidth)×\(mode.pixelHeight) px)" : ""
-        return "\(mode.width)×\(mode.height)\(retina)"
+        return "\(mode.width)×\(mode.height)\(retina) @ \(Int(mode.refreshRate)) Hz"
     }
 }
