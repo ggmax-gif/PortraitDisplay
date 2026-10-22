@@ -39,7 +39,11 @@ final class InputInjector {
 
     private func process(_ message: String) {
         let f = message.split(separator: " ").map(String.init)
-        func n(_ i: Int) -> Double { i < f.count ? Double(f[i]) ?? 0 : 0 }
+        // Untrusted input: Double("NaN") parses, and NaN or a huge value would trap when converted to Int32.
+        func n(_ i: Int) -> Double {
+            guard i < f.count, let v = Double(f[i]), v.isFinite else { return 0 }
+            return min(max(v, -100), 100)
+        }
         guard f.count >= 2 else { return }
 
         switch f[0] {

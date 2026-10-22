@@ -18,7 +18,7 @@ struct CodecConfig: Equatable {
 }
 
 /// Hardware H.264 encoder (VideoToolbox) tuned for low latency: no B-frames, no frame delay,
-/// keyframes only on request (new viewer, viewer fell behind) or every 10 s.
+/// keyframes only on request (new viewer, decoder error, viewer fell behind).
 final class VideoEncoder {
     var onConfig: ((CodecConfig) -> Void)?
     var onFrame: ((EncodedFrame) -> Void)?
@@ -50,7 +50,10 @@ final class VideoEncoder {
             (kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),
             (kVTCompressionPropertyKey_ExpectedFrameRate, fps as CFNumber),
-            (kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, 10 as CFNumber),
+            // No periodic keyframes: each is ~300 KB, a visible hitch on slow Wi-Fi. Viewers ask for
+            // one when they join or their decoder fails, and TCP never loses frames in between.
+            // (0 is not "no limit" here: it measured a keyframe every ~2 s.)
+            (kVTCompressionPropertyKey_MaxKeyFrameInterval, Int32.max as CFNumber),
             // Only a cap: VideoToolbox's hardware H.264 ignores Quality, and with no cap a single
             // keyframe reaches 1.5 MB at level 6.2. Still screens cost almost nothing either way.
             (kVTCompressionPropertyKey_DataRateLimits, [bytesPerSecond, 1] as CFArray),

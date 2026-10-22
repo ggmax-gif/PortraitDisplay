@@ -32,6 +32,13 @@ encoder.onFrame = { server.publish($0) }
 
 let capturer = Capturer(config: config, encoder: encoder)
 server.onKeyframeNeeded = { capturer.requestKeyframe() }
+capturer.freeSlots = { server.freeSlots }
+server.onRoom = { capturer.roomAvailable() }
+server.macStats = {
+    let s = capturer.takeStats(), t = StreamServer.statsInterval
+    return String(format: "Mac: captured %.0f/s, encoded %.0f/s in %.0f ms",
+                  Double(s.captured) / t, Double(s.encoded) / t, s.encodeMs)
+}
 
 if config.input {
     let injector = InputInjector(displayID: virtualDisplay.displayID)

@@ -72,6 +72,7 @@ enum ViewerPage {
       let ws = null, decoder = null, codec = null, needKey = true, timestamp = 0;
       let current = null, drawPending = false;
       let frames = 0, bytes = 0, rate = 0, kbps = 0, status = "connecting…";
+      let pipeline = "", received = new Map(), decodeSum = 0, decodeCount = 0;
       let wakeLock = null, hudTimer = null;
 
       function resize() {
@@ -101,6 +102,7 @@ enum ViewerPage {
         const size = codec ? `${codec.width}×${codec.height}` : "–";
         hud.innerHTML =
           `${status}<br>` +
+          (pipeline ? `${pipeline}<br>` : "") +
           `${rate} updates/s · ${kbps >= 1000 ? (kbps / 1000).toFixed(1) + " Mbit/s" : kbps + " kbit/s"}` +
           ` · H.264 ${size}<br>` +
           `usable area: ${area.w}×${area.h} pt ` +
@@ -124,9 +126,15 @@ enum ViewerPage {
         if (decoder && decoder.state !== "closed") { try { decoder.close(); } catch (_) {} }
         decoder = null;
         needKey = true;
+        received.clear();
         if (!codec) return;
         decoder = new VideoDecoder({
           output: (frame) => {
+            const t0 = received.get(frame.timestamp);
+            if (t0 !== undefined) {
+              received.delete(frame.timestamp);
+              decodeSum += performance.now() - t0; decodeCount++;
+            }
             // Keep only the newest frame; draw it on the next screen refresh.
             if (current) current.close();
             current = frame;
@@ -156,6 +164,7 @@ enum ViewerPage {
         if (needKey && !isKey) return;
         needKey = false;
         timestamp += 16667;   // the decoder needs increasing timestamps; frames are drawn on arrival
+        received.set(timestamp, performance.now());
         try {
           decoder.decode(new EncodedVideoChunk({
             type: isKey ? "key" : "delta", timestamp, data: new Uint8Array(buffer, 1),
@@ -178,7 +187,9 @@ enum ViewerPage {
         };
         ws.onmessage = (event) => {
           if (typeof event.data === "string") {
-            codec = JSON.parse(event.data);
+            const message = JSON.parse(event.data);
+            if (message.stats) { pipeline = message.stats; updateHud(); return; }
+            codec = message;
             resetDecoder();
             updateHud();
           } else {
@@ -207,7 +218,7 @@ enum ViewerPage {
       // three-finger tap = show/hide the overlay. Positions are sent as 0–1 across the stream.
       const touches = new Map();   // pointerId -> {x, y}
       let gesture = null, momentum = null;
-      const f = (v) => v.toFixed(5);
+      const f = (v) => Number.isFinite(v) ? v.toFixed(5) : "0";   // a zero-size layout would give NaN
 
       function streamRect() {
         const box = canvas.getBoundingClientRect();
@@ -327,6 +338,7 @@ enum ViewerPage {
       setInterval(() => {
         rate = frames; frames = 0;
         kbps = Math.round(bytes * 8 / 1000); bytes = 0;
+        if (decodeCount) { send(`d ${(decodeSum / decodeCount).toFixed(1)}`); decodeSum = 0; decodeCount = 0; }
         updateHud();
       }, 1000);
       resize();

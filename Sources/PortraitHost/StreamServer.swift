@@ -11,6 +11,12 @@ final class StreamServer {
     let token: String
     var onKeyframeNeeded: (() -> Void)?
     var onInput: ((String) -> Void)?   // touch / Pencil messages from an authenticated iPad
+    var macStats: (() -> String)?      // capture / encode part of the stats line
+    var onRoom: (() -> Void)?          // an iPad can take more frames again
+    private let slotsLock = NSLock()
+    private var slots = 0              // guarded by slotsLock
+    static let statsInterval = 2.0
+    private var statsTimer: DispatchSourceTimer?
     private let config: Config
     private let queue = DispatchQueue(label: "portrait.server")
     private var codec: (message: String, version: Int)?
@@ -50,6 +56,25 @@ final class StreamServer {
 
         listeners = [wsListener, pageListener, setupListener]
         for listener in listeners { listener.start(queue: queue) }
+
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + Self.statsInterval, repeating: Self.statsInterval)
+        timer.setEventHandler { [weak self] in self?.reportStats() }
+        timer.resume()
+        statsTimer = timer
+    }
+
+    /// Every 2 s while frames flow: one line per iPad, printed and shown on its overlay.
+    private func reportStats() {
+        let mac = macStats?() ?? ""   // always called, so its counters reset each interval
+        for viewer in viewers.values {
+            guard let line = viewer.takeStats(seconds: Self.statsInterval) else { continue }
+            let text = "\(mac) · \(line)"
+            print("Stats (\(endpointName(viewer.connection))): \(text)")
+            if let json = try? JSONSerialization.data(withJSONObject: ["stats": text]) {
+                viewer.sendText(json)
+            }
+        }
     }
 
     func publish(_ newConfig: CodecConfig) {
@@ -57,15 +82,17 @@ final class StreamServer {
         {"codec":"\(newConfig.codec)","width":\(newConfig.width),"height":\(newConfig.height),\
         "description":"\(newConfig.avcC.base64EncodedString())"}
         """
-        queue.async {
+        queue.sync {
             self.codec = (message, (self.codec?.version ?? 0) + 1)
         }
     }
 
+    /// Synchronous on purpose: the capturer's next "is there room?" check must already see this
+    /// frame counted, or it encodes one frame too many and that frame gets skipped (→ keyframe).
     func publish(_ frame: EncodedFrame) {
         var message = Data([frame.isKey ? 1 : 0])   // 1-byte header: keyframe flag
         message.append(frame.data)
-        queue.async {
+        queue.sync {
             for viewer in self.viewers.values { viewer.offer(message, isKey: frame.isKey) }
         }
     }
@@ -75,6 +102,23 @@ final class StreamServer {
     fileprivate var currentCodec: (message: String, version: Int)? { codec }
 
     fileprivate func requestKeyframe() { onKeyframeNeeded?() }
+
+    /// How many more frames every connected iPad can take right now (0 with none connected).
+    /// The capturer checks this before encoding: skipping a frame before it's encoded is free,
+    /// skipping it after costs a keyframe, and keyframes are what made video stutter.
+    var freeSlots: Int {
+        slotsLock.lock(); defer { slotsLock.unlock() }
+        return slots
+    }
+
+    fileprivate func updateSlots() {
+        let free = viewers.values.filter { $0.authenticated }.map { $0.freeSlots }.min() ?? 0
+        slotsLock.lock()
+        let grew = free > slots
+        slots = free
+        slotsLock.unlock()
+        if grew { onRoom?() }
+    }
 
     fileprivate func input(_ message: String) { onInput?(message) }
 
@@ -91,6 +135,7 @@ final class StreamServer {
     fileprivate func viewerClosed(_ viewer: Viewer) {
         let wasAuthenticated = viewer.authenticated
         viewers.removeValue(forKey: ObjectIdentifier(viewer))
+        updateSlots()
         if wasAuthenticated { print("iPad disconnected. Viewers: \(authenticatedCount)") }
     }
 
@@ -192,6 +237,13 @@ private final class Viewer {
     private var keyRequested = false
     private var codecVersionSent = 0
     private var closed = false
+    // Stats since the last report.
+    private var sentTimes: [TimeInterval] = []   // send time of each unacknowledged frame, oldest first
+    private var sent = 0, skipped = 0, keys = 0, bytes = 0
+    private var roundTrips: [Double] = []
+    private var decodeMs: String?
+
+    var freeSlots: Int { max(0, Self.maxInFlight - inFlight) }
 
     init(connection: NWConnection, server: StreamServer) {
         self.connection = connection
@@ -238,19 +290,26 @@ private final class Viewer {
         switch text {
         case "ack":
             inFlight = max(0, inFlight - 1)
+            if !sentTimes.isEmpty {
+                roundTrips.append(ProcessInfo.processInfo.systemUptime - sentTimes.removeFirst())
+            }
             if waitingForKey && !keyRequested && inFlight < Self.maxInFlight { requestKey() }
+            server.updateSlots()
         case "key":   // the iPad's decoder failed or was reset
             resync()
         default:
+            if text.hasPrefix("d ") { decodeMs = String(text.dropFirst(2)); return }
             if text.hasPrefix("c ") || text.hasPrefix("p ") || text.hasPrefix("s ") { server.input(text) }
         }
     }
 
     private func resync() {
         inFlight = 0
+        sentTimes.removeAll()
         waitingForKey = true
         codecVersionSent = 0   // the decoder needs its config again too
-        requestKey()
+        requestKey()           // before updateSlots, so the frame that room allows is the keyframe
+        server.updateSlots()
     }
 
     private func requestKey() {
@@ -263,6 +322,7 @@ private final class Viewer {
         let roomToSend = inFlight < Self.maxInFlight
         if waitingForKey {
             guard isKey, roomToSend else {
+                skipped += 1
                 if isKey { keyRequested = false }   // that keyframe is gone; ask again once there's room
                 if roomToSend && !keyRequested { requestKey() }
                 return
@@ -271,6 +331,7 @@ private final class Viewer {
             // Behind: drop this frame and everything up to a keyframe, requested once acks free up room.
             waitingForKey = true
             keyRequested = false
+            skipped += 1
             return
         }
         if isKey {
@@ -282,7 +343,32 @@ private final class Viewer {
             }
         }
         inFlight += 1
+        sent += 1
+        bytes += frame.count
+        if isKey { keys += 1 }
+        sentTimes.append(ProcessInfo.processInfo.systemUptime)
         send(frame, opcode: .binary)
+        server.updateSlots()
+    }
+
+    func sendText(_ data: Data) {
+        guard authenticated, !closed else { return }
+        send(data, opcode: .text)
+    }
+
+    /// Nil when nothing was sent or skipped (still screen), so the log stays quiet.
+    func takeStats(seconds: Double) -> String? {
+        defer { sent = 0; skipped = 0; keys = 0; bytes = 0; roundTrips = []; decodeMs = nil }
+        guard authenticated, sent + skipped > 0 else { return nil }
+        let rate = { (n: Int) in Int((Double(n) / seconds).rounded()) }
+        var line = "sent \(rate(sent))/s (skipped \(rate(skipped))/s, \(keys) keyframes), "
+            + String(format: "%.1f Mbit/s", Double(bytes) * 8 / seconds / 1e6)
+        if !roundTrips.isEmpty {
+            let avg = roundTrips.reduce(0, +) / Double(roundTrips.count) * 1000
+            line += String(format: ", round trip %.0f ms (max %.0f)", avg, (roundTrips.max() ?? 0) * 1000)
+        }
+        if let decodeMs = decodeMs { line += ", iPad decode \(decodeMs) ms" }
+        return line
     }
 
     private func send(_ data: Data, opcode: NWProtocolWebSocket.Opcode) {

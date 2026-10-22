@@ -17,8 +17,8 @@ enum HostError: LocalizedError {
 }
 
 /// Captures the virtual display with ScreenCaptureKit and feeds each new frame to the H.264 encoder.
-/// Only changed frames arrive. If the encoder is busy the frame is skipped, and the newest one is
-/// encoded as soon as it frees up.
+/// Only changed frames arrive. If the encoder is busy, or the iPad hasn't caught up, the frame is
+/// skipped and the newest one is encoded as soon as there's room.
 final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
     private let config: Config
     private let encoder: VideoEncoder
@@ -29,6 +29,10 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
     private var encoding = 0
     private var encodeLatestWhenFree = false
     private var idleRefresh: DispatchWorkItem?
+    private var stats = (captured: 0, encoded: 0, encodeSeconds: 0.0)
+
+    /// How many more frames the iPads can take; frames beyond that aren't encoded at all.
+    var freeSlots: () -> Int = { .max }
 
     init(config: Config, encoder: VideoEncoder) {
         self.config = config
@@ -40,6 +44,15 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
     func requestKeyframe() {
         sampleQueue.async {
             self.encoder.requestKeyframe()
+            self.encodeLatest()
+        }
+    }
+
+    /// An iPad caught up: encode the newest frame if one has been waiting.
+    func roomAvailable() {
+        sampleQueue.async {
+            guard self.encodeLatestWhenFree else { return }
+            self.encodeLatestWhenFree = false
             self.encodeLatest()
         }
     }
@@ -96,6 +109,7 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
               let pixelBuffer = sampleBuffer.imageBuffer else { return }
 
         latest = pixelBuffer
+        stats.captured += 1
         encodeLatest()
 
         // When the screen goes still, encode the last frame once more. Frames sent during fast
@@ -113,17 +127,30 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
         exit(1)
     }
 
+    /// Frames captured and encoded since the last call, and the average encode time.
+    func takeStats() -> (captured: Int, encoded: Int, encodeMs: Double) {
+        sampleQueue.sync {
+            let s = stats
+            stats = (0, 0, 0)
+            return (s.captured, s.encoded, s.encoded > 0 ? s.encodeSeconds / Double(s.encoded) * 1000 : 0)
+        }
+    }
+
     // MARK: Encoding
 
     private func encodeLatest() {   // called on sampleQueue
         guard let buffer = latest else { return }
-        guard encoding < 2 else { encodeLatestWhenFree = true; return }
+        // Frames already in the encoder will need room too.
+        guard encoding < min(2, freeSlots()) else { encodeLatestWhenFree = true; return }
         encoding += 1
         let now = CMClockGetTime(CMClockGetHostTimeClock())
+        let started = ProcessInfo.processInfo.systemUptime
         encoder.encode(buffer, time: now) { [weak self] in
             self?.sampleQueue.async {
                 guard let self = self else { return }
                 self.encoding -= 1
+                self.stats.encoded += 1
+                self.stats.encodeSeconds += ProcessInfo.processInfo.systemUptime - started
                 if self.encodeLatestWhenFree {
                     self.encodeLatestWhenFree = false
                     self.encodeLatest()

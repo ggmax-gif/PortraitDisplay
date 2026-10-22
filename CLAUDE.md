@@ -11,10 +11,12 @@ Not for the App Store, because it uses a private API.
 - `VirtualDisplay.swift`: creates the portrait virtual monitor "Portrait iPad", HiDPI by default.
   Picks the "looks like W×H" Retina mode with the public `CGDisplaySetDisplayMode`.
 - `Capturer.swift`: ScreenCaptureKit captures that display (changed frames only, 420v YUV) and feeds
-  the encoder. While the encoder is busy, only the newest frame is kept. 0.3 s after the screen goes
+  the encoder. It only encodes when the iPad has room (`StreamServer.freeSlots`); otherwise the newest
+  frame waits. Skipping before encoding is free; skipping after costs a keyframe (that made video stutter). 0.3 s after the screen goes
   still it re-encodes the last frame once to sharpen it; keyframe requests also re-encode it.
 - `VideoEncoder.swift`: VideoToolbox H.264 (High, no B-frames, real time), output as AVCC + avcC.
-  Only a bitrate cap (`--bitrate`): the hardware H.264 encoder ignores `Quality`.
+  Only a bitrate cap (`--bitrate`): the hardware H.264 encoder ignores `Quality`. Keyframes only on
+  request; `MaxKeyFrameInterval` is Int32.max because 0 measured a keyframe every ~2 s.
 - `H264NoReorder.swift`: patches the SPS in the avcC to say `max_num_reorder_frames = 0`. Without it,
   decoders hold back up to 7 frames (seen in Chrome), so the last change on a still screen never shows.
 - `Certificates.swift`: WebCodecs needs a secure context, so the page is HTTPS. A local CA in
@@ -23,8 +25,10 @@ Not for the App Store, because it uses a private API.
 - `StreamServer.swift`: Network.framework. HTTP on `--port` (default 8080) serves the setup page and
   the CA. HTTPS on port+1 serves the viewer page and manifest. Secure WebSocket on port+2: client sends
   `hello <token>`, server sends codec config (JSON text) before keyframes and frames as binary
-  (1-byte keyframe flag + AVCC). Client sends `ack` per frame, `key` after a decoder error, and input messages (`c`/`p`/`s …`). More
-  than 4 unacked frames → skip until the next keyframe.
+  (1-byte keyframe flag + AVCC). Client sends `ack` per frame, `key` after a decoder error, `d <ms>`
+  (decode time) and input messages (`c`/`p`/`s …`). At most 4 unacked frames per iPad.
+  Every 2 s while frames flow, a stats line (capture, encode, sent/skipped, Mbit/s, ack round trip,
+  iPad decode) is printed and shown on the overlay. Use it before guessing at performance.
 - `SetupPage.swift` / `ViewerPage.swift`: the iPad pages, raw Swift strings with `__PLACEHOLDER__`s.
   The setup page forwards to HTTPS once the cert is trusted. The viewer decodes with `VideoDecoder`
   and draws the newest frame on a canvas (reconnect, wake lock, overlay showing the iPad's size).
