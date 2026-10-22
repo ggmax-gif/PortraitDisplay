@@ -54,7 +54,7 @@ Other options (`--help` lists them all):
 |---|---|---|
 | `--scale 1.5` | 2 | Lower = less Wi-Fi traffic, slightly softer text |
 | `--bitrate 10` | 20 | H.264 cap in Mbit/s while things move. Lower for slow Wi-Fi |
-| `--fps 60` | 30 | Max updates per second |
+| `--fps 30` | 60 | Max updates per second. Lower it if the iPad can't keep up |
 | `--port 9090` | 8080 | Uses this port and the next two (8080–8082). Change if they're taken |
 | `--no-hidpi` | off | Bigger UI, less sharp |
 

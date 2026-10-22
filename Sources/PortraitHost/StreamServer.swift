@@ -93,7 +93,16 @@ final class StreamServer {
 
     private var authenticatedCount: Int { viewers.values.filter { $0.authenticated }.count }
 
-    private func endpointName(_ connection: NWConnection) -> String {
+    /// A device that doesn't trust the certificate drops the TLS handshake; say so instead of staying silent.
+    fileprivate func tlsFailureLogger(_ connection: NWConnection) -> (NWConnection.State) -> Void {
+        return { [weak self] state in
+            guard let self = self, case let .failed(error) = state, case .tls = error else { return }
+            print("Secure connection from \(self.endpointName(connection)) failed: \(error). "
+                  + "Is \"\(Certificates.caName)\" turned on in Certificate Trust Settings?")
+        }
+    }
+
+    fileprivate func endpointName(_ connection: NWConnection) -> String {
         if case let .hostPort(host, _) = connection.endpoint { return "\(host)" }
         return "\(connection.endpoint)"
     }
@@ -101,6 +110,7 @@ final class StreamServer {
     // MARK: HTTP
 
     private func serveHTTP(_ connection: NWConnection, secure: Bool) {
+        if secure { connection.stateUpdateHandler = tlsFailureLogger(connection) }
         connection.start(queue: queue)
         connection.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) { [weak self] data, _, _, _ in
             guard let self = self,
@@ -121,6 +131,7 @@ final class StreamServer {
             var body = Data()
             switch (secure, path, authorised) {
             case (true, "/", true):
+                print("Viewer page opened (\(self.endpointName(connection))).")
                 body = Data(ViewerPage.html(token: self.token, wsPort: self.config.wsPort, name: self.config.name).utf8)
             case (true, "/manifest.webmanifest", true):
                 contentType = "application/manifest+json"
@@ -130,8 +141,10 @@ final class StreamServer {
                 status = "204 No Content"; contentType = "text/plain"
                 extraHeaders = "Access-Control-Allow-Origin: *\r\n"
             case (false, "/", true):
+                print("Setup page opened (\(self.endpointName(connection))).")
                 body = Data(SetupPage.html(token: self.token, pagePort: self.config.pagePort).utf8)
             case (false, "/PortraitDisplay-CA.cer", _):
+                print("Certificate downloaded (\(self.endpointName(connection))).")
                 contentType = "application/x-x509-ca-cert"
                 body = Certificates.caDER()
             case (_, "/", false):
@@ -183,7 +196,9 @@ private final class Viewer {
     }
 
     func start(on queue: DispatchQueue) {
+        let logTLSFailure = server.tlsFailureLogger(connection)
         connection.stateUpdateHandler = { [weak self] state in
+            logTLSFailure(state)
             switch state {
             case .failed, .cancelled: self?.close()
             default: break

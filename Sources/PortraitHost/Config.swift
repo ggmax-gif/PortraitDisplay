@@ -6,7 +6,7 @@ struct Config {
     var heightPoints = 1200
     var hiDPI = true
     var streamScale = 2.0      // stream pixels per point (2 = full Retina sharpness)
-    var fps = 30
+    var fps = 60
     var bitrateMbps = 20.0     // H.264 cap; still screens use far less
     var httpPort: UInt16 = 8080
     var name = "Portrait iPad"
@@ -32,7 +32,7 @@ struct Config {
                            iPad's own size; pass those numbers for a perfect fit.
       --scale <n>          Stream pixels per point, 1 – 2           (default 2 = sharpest)
       --bitrate <mbps>     H.264 bitrate cap in Mbit/s, 2 – 40      (default 20)
-      --fps <n>            Max frames per second                    (default 30)
+      --fps <n>            Max frames per second                    (default 60)
       --port <n>           Setup page port; also uses port+1, +2    (default 8080)
       --no-hidpi           Non-Retina virtual display (bigger UI, blurrier text)
       --help               Show this help
