@@ -1,15 +1,18 @@
 import Foundation
 import Network
 
-/// Serves the viewer page (HTTP, `port`) and the frames (WebSocket, `port + 1`).
-/// Each iPad asks for a frame with "next" and gets the newest one, so a slow network
-/// lowers the frame rate instead of adding lag.
+/// Three listeners:
+///   `port`      plain HTTP – setup page and the CA certificate for the iPad to install
+///   `port + 1`  HTTPS – the viewer page (WebCodecs only works on secure pages)
+///   `port + 2`  secure WebSocket – codec config (text) and H.264 frames (binary)
+/// Each iPad acknowledges every frame. If too many are unacknowledged it skips frames and resumes
+/// at the next keyframe, so a slow network lowers the frame rate instead of adding lag.
 final class StreamServer {
     let token: String
+    var onKeyframeNeeded: (() -> Void)?
     private let config: Config
     private let queue = DispatchQueue(label: "portrait.server")
-    private var latest: Data?
-    private var sequence: UInt64 = 0
+    private var codec: (message: String, version: Int)?
     private var viewers: [ObjectIdentifier: Viewer] = [:]
     private var listeners: [NWListener] = []
 
@@ -18,46 +21,59 @@ final class StreamServer {
         self.token = token
     }
 
-    func start() throws {
-        // WebSocket listener for frames
+    func start(tls: NWProtocolTLS.Options) throws {
+        // Secure WebSocket listener for frames
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
-        let wsParameters = NWParameters(tls: nil, tcp: tcp)
+        let wsParameters = NWParameters(tls: tls, tcp: tcp)
         let wsOptions = NWProtocolWebSocket.Options()
         wsOptions.autoReplyPing = true
-        wsOptions.maximumMessageSize = 1 << 20
+        wsOptions.maximumMessageSize = 64 * 1024
         wsParameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
         wsParameters.allowLocalEndpointReuse = true
         let wsListener = try NWListener(using: wsParameters, on: Self.port(config.wsPort))
         wsListener.newConnectionHandler = { [weak self] connection in self?.acceptViewer(connection) }
         wsListener.stateUpdateHandler = Self.stateHandler(port: config.wsPort)
-        wsListener.start(queue: queue)
 
-        // Plain HTTP listener for the page
-        let httpParameters = NWParameters(tls: nil, tcp: NWProtocolTCP.Options())
-        httpParameters.allowLocalEndpointReuse = true
-        let httpListener = try NWListener(using: httpParameters, on: Self.port(config.httpPort))
-        httpListener.newConnectionHandler = { [weak self] connection in self?.serveHTTP(connection) }
-        httpListener.stateUpdateHandler = Self.stateHandler(port: config.httpPort)
-        httpListener.start(queue: queue)
+        let pageParameters = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
+        pageParameters.allowLocalEndpointReuse = true
+        let pageListener = try NWListener(using: pageParameters, on: Self.port(config.pagePort))
+        pageListener.newConnectionHandler = { [weak self] connection in self?.serveHTTP(connection, secure: true) }
+        pageListener.stateUpdateHandler = Self.stateHandler(port: config.pagePort)
 
-        listeners = [wsListener, httpListener]
+        let setupParameters = NWParameters(tls: nil, tcp: NWProtocolTCP.Options())
+        setupParameters.allowLocalEndpointReuse = true
+        let setupListener = try NWListener(using: setupParameters, on: Self.port(config.httpPort))
+        setupListener.newConnectionHandler = { [weak self] connection in self?.serveHTTP(connection, secure: false) }
+        setupListener.stateUpdateHandler = Self.stateHandler(port: config.httpPort)
+
+        listeners = [wsListener, pageListener, setupListener]
+        for listener in listeners { listener.start(queue: queue) }
     }
 
-    func publish(_ jpeg: Data) {
+    func publish(_ newConfig: CodecConfig) {
+        let message = """
+        {"codec":"\(newConfig.codec)","width":\(newConfig.width),"height":\(newConfig.height),\
+        "description":"\(newConfig.avcC.base64EncodedString())"}
+        """
         queue.async {
-            self.sequence &+= 1
-            self.latest = jpeg
-            for viewer in self.viewers.values { viewer.pump() }
+            self.codec = (message, (self.codec?.version ?? 0) + 1)
+        }
+    }
+
+    func publish(_ frame: EncodedFrame) {
+        var message = Data([frame.isKey ? 1 : 0])   // 1-byte header: keyframe flag
+        message.append(frame.data)
+        queue.async {
+            for viewer in self.viewers.values { viewer.offer(message, isKey: frame.isKey) }
         }
     }
 
     // MARK: Viewers (all on `queue`)
 
-    fileprivate func frame(after seen: UInt64) -> (data: Data, sequence: UInt64)? {
-        guard sequence > seen, let latest = latest else { return nil }
-        return (latest, sequence)
-    }
+    fileprivate var currentCodec: (message: String, version: Int)? { codec }
+
+    fileprivate func requestKeyframe() { onKeyframeNeeded?() }
 
     private func acceptViewer(_ connection: NWConnection) {
         let viewer = Viewer(connection: connection, server: self)
@@ -84,7 +100,7 @@ final class StreamServer {
 
     // MARK: HTTP
 
-    private func serveHTTP(_ connection: NWConnection) {
+    private func serveHTTP(_ connection: NWConnection, secure: Bool) {
         connection.start(queue: queue)
         connection.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) { [weak self] data, _, _, _ in
             guard let self = self,
@@ -101,24 +117,32 @@ final class StreamServer {
             let providedToken = components?.queryItems?.first(where: { $0.name == "t" })?.value
             let authorised = providedToken == self.token
 
-            let status: String, contentType: String, body: String
-            switch (path, authorised) {
-            case ("/", true):
-                status = "200 OK"; contentType = "text/html; charset=utf-8"
-                body = ViewerPage.html(token: self.token, wsPort: self.config.wsPort, name: self.config.name)
-            case ("/manifest.webmanifest", true):
-                status = "200 OK"; contentType = "application/manifest+json"
-                body = ViewerPage.manifest(token: self.token, name: self.config.name)
-            case ("/", false):
-                status = "403 Forbidden"; contentType = "text/html; charset=utf-8"
-                body = ViewerPage.wrongLink
+            var status = "200 OK", contentType = "text/html; charset=utf-8", extraHeaders = ""
+            var body = Data()
+            switch (secure, path, authorised) {
+            case (true, "/", true):
+                body = Data(ViewerPage.html(token: self.token, wsPort: self.config.wsPort, name: self.config.name).utf8)
+            case (true, "/manifest.webmanifest", true):
+                contentType = "application/manifest+json"
+                body = Data(ViewerPage.manifest(token: self.token, name: self.config.name).utf8)
+            case (true, "/ping", _):
+                // The setup page fetches this to find out whether the iPad trusts the certificate yet.
+                status = "204 No Content"; contentType = "text/plain"
+                extraHeaders = "Access-Control-Allow-Origin: *\r\n"
+            case (false, "/", true):
+                body = Data(SetupPage.html(token: self.token, pagePort: self.config.pagePort).utf8)
+            case (false, "/PortraitDisplay-CA.cer", _):
+                contentType = "application/x-x509-ca-cert"
+                body = Certificates.caDER()
+            case (_, "/", false):
+                status = "403 Forbidden"
+                body = Data(ViewerPage.wrongLink.utf8)
             default:
-                status = "404 Not Found"; contentType = "text/plain"; body = "Not found"
+                status = "404 Not Found"; contentType = "text/plain"; body = Data("Not found".utf8)
             }
-            let bodyData = Data(body.utf8)
-            let header = "HTTP/1.1 \(status)\r\nContent-Type: \(contentType)\r\nContent-Length: \(bodyData.count)\r\n"
-                + "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
-            connection.send(content: Data(header.utf8) + bodyData,
+            let header = "HTTP/1.1 \(status)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\n"
+                + "Cache-Control: no-store\r\n\(extraHeaders)Connection: close\r\n\r\n"
+            connection.send(content: Data(header.utf8) + body,
                             completion: .contentProcessed { _ in connection.cancel() })
         }
     }
@@ -140,11 +164,17 @@ final class StreamServer {
 
 /// One connected iPad.
 private final class Viewer {
+    /// Frames sent but not yet acknowledged. A few in flight keeps the pipe full on Wi-Fi;
+    /// beyond that, frames would just queue up as lag.
+    private static let maxInFlight = 4
+
     let connection: NWConnection
     unowned let server: StreamServer
     var authenticated = false
-    private var wantsFrame = false
-    private var lastSent: UInt64 = 0
+    private var inFlight = 0
+    private var waitingForKey = true     // H.264 deltas are useless until the next keyframe
+    private var keyRequested = false
+    private var codecVersionSent = 0
     private var closed = false
 
     init(connection: NWConnection, server: StreamServer) {
@@ -184,22 +214,63 @@ private final class Viewer {
             guard text == "hello " + server.token else { close(); return }
             authenticated = true
             server.viewerAuthenticated(self)
+            resync()
             return
         }
-        if text == "next" {
-            wantsFrame = true
-            pump()
+        switch text {
+        case "ack":
+            inFlight = max(0, inFlight - 1)
+            if waitingForKey && !keyRequested && inFlight < Self.maxInFlight { requestKey() }
+        case "key":   // the iPad's decoder failed or was reset
+            resync()
+        default:
+            break
         }
     }
 
-    func pump() {
-        guard authenticated, wantsFrame, !closed,
-              let frame = server.frame(after: lastSent) else { return }
-        wantsFrame = false
-        lastSent = frame.sequence
-        let metadata = NWProtocolWebSocket.Metadata(opcode: .binary)
+    private func resync() {
+        inFlight = 0
+        waitingForKey = true
+        codecVersionSent = 0   // the decoder needs its config again too
+        requestKey()
+    }
+
+    private func requestKey() {
+        keyRequested = true
+        server.requestKeyframe()
+    }
+
+    func offer(_ frame: Data, isKey: Bool) {
+        guard authenticated, !closed else { return }
+        let roomToSend = inFlight < Self.maxInFlight
+        if waitingForKey {
+            guard isKey, roomToSend else {
+                if isKey { keyRequested = false }   // that keyframe is gone; ask again once there's room
+                if roomToSend && !keyRequested { requestKey() }
+                return
+            }
+        } else if !roomToSend {
+            // Behind: drop this frame and everything up to a keyframe, requested once acks free up room.
+            waitingForKey = true
+            keyRequested = false
+            return
+        }
+        if isKey {
+            waitingForKey = false
+            keyRequested = false
+            if let codec = server.currentCodec, codec.version != codecVersionSent {
+                codecVersionSent = codec.version
+                send(Data(codec.message.utf8), opcode: .text)
+            }
+        }
+        inFlight += 1
+        send(frame, opcode: .binary)
+    }
+
+    private func send(_ data: Data, opcode: NWProtocolWebSocket.Opcode) {
+        let metadata = NWProtocolWebSocket.Metadata(opcode: opcode)
         let context = NWConnection.ContentContext(identifier: "frame", metadata: [metadata])
-        connection.send(content: frame.data, contentContext: context, isComplete: true,
+        connection.send(content: data, contentContext: context, isComplete: true,
                         completion: .contentProcessed { [weak self] error in
                             if error != nil { self?.close() }
                         })

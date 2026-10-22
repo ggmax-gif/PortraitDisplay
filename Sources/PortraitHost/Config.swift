@@ -7,11 +7,12 @@ struct Config {
     var hiDPI = true
     var streamScale = 2.0      // stream pixels per point (2 = full Retina sharpness)
     var fps = 30
-    var quality = 0.7          // JPEG quality 0.1 ... 1.0
+    var bitrateMbps = 20.0     // H.264 cap; still screens use far less
     var httpPort: UInt16 = 8080
     var name = "Portrait iPad"
 
-    var wsPort: UInt16 { httpPort &+ 1 }
+    var pagePort: UInt16 { httpPort &+ 1 }   // HTTPS viewer page
+    var wsPort: UInt16 { httpPort &+ 2 }     // secure WebSocket
     var streamWidth: Int { Config.even(Double(widthPoints) * streamScale) }
     var streamHeight: Int { Config.even(Double(heightPoints) * streamScale) }
 
@@ -30,9 +31,9 @@ struct Config {
                            Tip: open the page on the iPad once – the overlay shows the
                            iPad's own size; pass those numbers for a perfect fit.
       --scale <n>          Stream pixels per point, 1 – 2           (default 2 = sharpest)
-      --quality <q>        JPEG quality, 0.3 – 0.95                 (default 0.7)
+      --bitrate <mbps>     H.264 bitrate cap in Mbit/s, 2 – 40      (default 20)
       --fps <n>            Max frames per second                    (default 30)
-      --port <n>           Web page port; frames use port+1         (default 8080)
+      --port <n>           Setup page port; also uses port+1, +2    (default 8080)
       --no-hidpi           Non-Retina virtual display (bigger UI, blurrier text)
       --help               Show this help
     """
@@ -50,7 +51,7 @@ struct Config {
             case "--width":   c.widthPoints = intArg(value(), 200...4000)
             case "--height":  c.heightPoints = intArg(value(), 200...4000)
             case "--scale":   c.streamScale = doubleArg(value(), 0.5...2.0)
-            case "--quality": c.quality = doubleArg(value(), 0.1...1.0)
+            case "--bitrate": c.bitrateMbps = doubleArg(value(), 2...40)
             case "--fps":     c.fps = intArg(value(), 1...60)
             case "--port":    c.httpPort = UInt16(intArg(value(), 1024...65000))
             case "--no-hidpi": c.hiDPI = false

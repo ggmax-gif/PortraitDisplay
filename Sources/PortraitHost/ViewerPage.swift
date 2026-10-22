@@ -1,6 +1,7 @@
 import Foundation
 
-/// The page the iPad opens in Safari. Draws each JPEG frame full screen and asks for the next one.
+/// The page the iPad opens in Safari (over HTTPS). Decodes the H.264 stream with WebCodecs,
+/// draws the newest frame full screen and acknowledges every frame it receives.
 enum ViewerPage {
     static func html(token: String, wsPort: UInt16, name: String) -> String {
         template
@@ -64,7 +65,9 @@ enum ViewerPage {
       const canvas = document.getElementById("c");
       const ctx = canvas.getContext("2d", { alpha: false });
       const hud = document.getElementById("hud");
-      let ws = null, current = null, frames = 0, rate = 0, status = "connecting…";
+      let ws = null, decoder = null, codec = null, needKey = true, timestamp = 0;
+      let current = null, drawPending = false;
+      let frames = 0, bytes = 0, rate = 0, kbps = 0, status = "connecting…";
       let wakeLock = null, hudTimer = null;
 
       function resize() {
@@ -75,21 +78,24 @@ enum ViewerPage {
       }
 
       function draw() {
+        drawPending = false;
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         if (!current) return;
-        const s = Math.min(canvas.width / current.width, canvas.height / current.height);
-        const w = current.width * s, h = current.height * s;
+        const fw = current.displayWidth, fh = current.displayHeight;
+        const s = Math.min(canvas.width / fw, canvas.height / fh);
+        const w = fw * s, h = fh * s;
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
         ctx.drawImage(current, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
       }
 
       function updateHud() {
-        const img = current ? `${current.width}×${current.height}` : "–";
+        const size = codec ? `${codec.width}×${codec.height}` : "–";
         hud.innerHTML =
           `${status}<br>` +
-          `${rate} updates/s · stream ${img}<br>` +
+          `${rate} updates/s · ${kbps >= 1000 ? (kbps / 1000).toFixed(1) + " Mbit/s" : kbps + " kbit/s"}` +
+          ` · H.264 ${size}<br>` +
           `this iPad: ${window.innerWidth}×${window.innerHeight} pt ` +
           `→ <b>--width ${Math.min(window.innerWidth, window.innerHeight)} ` +
           `--height ${Math.max(window.innerWidth, window.innerHeight)}</b><br>` +
@@ -102,29 +108,75 @@ enum ViewerPage {
         hudTimer = setTimeout(() => hud.classList.add("hidden"), 8000);
       }
 
+      function send(text) {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(text);
+      }
+
+      // (Re)creates the decoder from the last codec config; the next frame it accepts must be a keyframe.
+      function resetDecoder() {
+        if (decoder && decoder.state !== "closed") { try { decoder.close(); } catch (_) {} }
+        decoder = null;
+        needKey = true;
+        if (!codec) return;
+        decoder = new VideoDecoder({
+          output: (frame) => {
+            // Keep only the newest frame; draw it on the next screen refresh.
+            if (current) current.close();
+            current = frame;
+            frames++;
+            if (!drawPending) { drawPending = true; requestAnimationFrame(draw); }
+          },
+          error: (e) => {
+            console.error(e);
+            status = "decoder error – resyncing";
+            updateHud();
+            resetDecoder();
+            send("key");
+          },
+        });
+        const description = Uint8Array.from(atob(codec.description), (c) => c.charCodeAt(0));
+        decoder.configure({
+          codec: codec.codec, description, codedWidth: codec.width, codedHeight: codec.height,
+          hardwareAcceleration: "prefer-hardware", optimizeForLatency: true,
+        });
+      }
+
+      function onFrame(buffer) {
+        bytes += buffer.byteLength;
+        send("ack");
+        const isKey = new Uint8Array(buffer, 0, 1)[0] === 1;
+        if (!decoder || decoder.state !== "configured") return;
+        if (needKey && !isKey) return;
+        needKey = false;
+        timestamp += 16667;   // the decoder needs increasing timestamps; frames are drawn on arrival
+        try {
+          decoder.decode(new EncodedVideoChunk({
+            type: isKey ? "key" : "delta", timestamp, data: new Uint8Array(buffer, 1),
+          }));
+        } catch (e) {
+          console.error(e);
+          resetDecoder();
+          send("key");
+        }
+      }
+
       function connect() {
         status = "connecting…"; updateHud();
-        ws = new WebSocket(`ws://${location.hostname}:${WS_PORT}/`);
+        ws = new WebSocket(`wss://${location.hostname}:${WS_PORT}/`);
         ws.binaryType = "arraybuffer";
         ws.onopen = () => {
           status = "connected";
           ws.send("hello " + TOKEN);
-          ws.send("next");
           updateHud(); showHudBriefly();
         };
-        ws.onmessage = async (event) => {
-          if (typeof event.data === "string") return;
-          try {
-            const bitmap = await createImageBitmap(new Blob([event.data], { type: "image/jpeg" }));
-            const old = current;
-            current = bitmap;
-            draw();
-            if (old && old.close) old.close();
-            frames++;
-          } catch (e) {
-            console.error(e);
+        ws.onmessage = (event) => {
+          if (typeof event.data === "string") {
+            codec = JSON.parse(event.data);
+            resetDecoder();
+            updateHud();
+          } else {
+            onFrame(event.data);
           }
-          if (ws && ws.readyState === WebSocket.OPEN) ws.send("next");
         };
         ws.onclose = () => {
           status = "disconnected – is PortraitHost running on the Mac? retrying…";
@@ -161,8 +213,17 @@ enum ViewerPage {
       document.addEventListener("visibilitychange", () => { if (!document.hidden) keepAwake(); });
       window.addEventListener("resize", () => { resize(); updateHud(); });
 
-      setInterval(() => { rate = frames; frames = 0; updateHud(); }, 1000);
+      setInterval(() => {
+        rate = frames; frames = 0;
+        kbps = Math.round(bytes * 8 / 1000); bytes = 0;
+        updateHud();
+      }, 1000);
       resize();
+      if (!("VideoDecoder" in window)) {
+        status = "This Safari has no WebCodecs video decoder. Update iPadOS to 16.4 or later.";
+        updateHud();
+        return;
+      }
       connect();
     })();
     </script>

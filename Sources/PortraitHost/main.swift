@@ -9,14 +9,29 @@ guard let virtualDisplay = VirtualDisplay(config: config) else {
     fail("macOS refused to create the virtual display.")
 }
 
+// Only private addresses: the iPad trusts the certificate for those and nothing else.
+let addresses = localIPv4Addresses().filter { Certificates.isPermitted($0.address) }
+
 let server = StreamServer(config: config, token: token)
 do {
-    try server.start()
+    let tls = try Certificates.tlsOptions(ips: addresses.map { $0.address })
+    try server.start(tls: tls)
 } catch {
-    fail("Couldn't start the web server: \(error)")
+    fail("Couldn't start the web server: \(error.localizedDescription)")
 }
 
-let capturer = Capturer(config: config) { jpeg in server.publish(jpeg) }
+let encoder: VideoEncoder
+do {
+    encoder = try VideoEncoder(width: config.streamWidth, height: config.streamHeight,
+                               fps: config.fps, bitrateMbps: config.bitrateMbps)
+} catch {
+    fail(error.localizedDescription)
+}
+encoder.onConfig = { server.publish($0) }
+encoder.onFrame = { server.publish($0) }
+
+let capturer = Capturer(config: config, encoder: encoder)
+server.onKeyframeNeeded = { capturer.requestKeyframe() }
 
 // Give macOS a moment to register the new display, then pick its mode and start capturing.
 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
@@ -34,11 +49,11 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             """)
             exit(1)
         }
-        print("Capturing at up to \(config.fps) fps, stream \(config.streamWidth)×\(config.streamHeight) px.")
+        print("Capturing at up to \(config.fps) fps, H.264 \(config.streamWidth)×\(config.streamHeight) px, "
+              + "max \(Int(config.bitrateMbps)) Mbit/s.")
     }
 }
 
-let addresses = localIPv4Addresses()
 print("""
 
 ────────────────────────────────────────────────────────
@@ -52,7 +67,9 @@ for entry in addresses {
 }
 print("""
 
- Then Share → Add to Home Screen for a full-screen app.
+ The first time, that page shows how to install this Mac's certificate
+ (needed for the H.264 decoder). Then it opens the display by itself.
+ Add it to the Home Screen from there (Share → Add to Home Screen).
  Move windows onto "\(config.name)" like any other monitor
  (arrange it in System Settings → Displays → Arrange…).
  Press Ctrl+C here to stop – the virtual display goes away.

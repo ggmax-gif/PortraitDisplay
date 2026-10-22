@@ -10,13 +10,24 @@ Not for the App Store, because it uses a private API.
   private `CGVirtualDisplay*` classes (in CoreGraphics), with NS_SWIFT_NAME annotations.
 - `VirtualDisplay.swift`: creates the portrait virtual monitor "Portrait iPad", HiDPI by default.
   Picks the "looks like W×H" Retina mode with the public `CGDisplaySetDisplayMode`.
-- `Capturer.swift`: ScreenCaptureKit captures that display (changed frames only) and encodes JPEG
-  with CIContext. While the encoder is busy, only the newest frame is kept.
-- `StreamServer.swift`: Network.framework. HTTP on `--port` (default 8080) serves the page and
-  manifest. The WebSocket on port+1 sends frames. Pull-based: the client sends `hello <token>`,
-  then `next` after each frame it draws.
-- `ViewerPage.swift`: the iPad web page (canvas, reconnect, wake lock, overlay showing the iPad's
-  size). It is a raw Swift string with `__TOKEN__` / `__WS_PORT__` / `__NAME__` placeholders.
+- `Capturer.swift`: ScreenCaptureKit captures that display (changed frames only, 420v YUV) and feeds
+  the encoder. While the encoder is busy, only the newest frame is kept. 0.3 s after the screen goes
+  still it re-encodes the last frame once to sharpen it; keyframe requests also re-encode it.
+- `VideoEncoder.swift`: VideoToolbox H.264 (High, no B-frames, real time), output as AVCC + avcC.
+  Only a bitrate cap (`--bitrate`): the hardware H.264 encoder ignores `Quality`.
+- `H264NoReorder.swift`: patches the SPS in the avcC to say `max_num_reorder_frames = 0`. Without it,
+  decoders hold back up to 7 frames (seen in Chrome), so the last change on a still screen never shows.
+- `Certificates.swift`: WebCodecs needs a secure context, so the page is HTTPS. A local CA in
+  `~/.portraitdisplay/` (name-constrained to private IPs) is installed on the iPad once; a server cert
+  for the current IPs is issued with `/usr/bin/openssl` each run and loaded in memory only.
+- `StreamServer.swift`: Network.framework. HTTP on `--port` (default 8080) serves the setup page and
+  the CA. HTTPS on port+1 serves the viewer page and manifest. Secure WebSocket on port+2: client sends
+  `hello <token>`, server sends codec config (JSON text) before keyframes and frames as binary
+  (1-byte keyframe flag + AVCC). Client sends `ack` per frame and `key` after a decoder error. More
+  than 4 unacked frames → skip until the next keyframe.
+- `SetupPage.swift` / `ViewerPage.swift`: the iPad pages, raw Swift strings with `__PLACEHOLDER__`s.
+  The setup page forwards to HTTPS once the cert is trusted. The viewer decodes with `VideoDecoder`
+  and draws the newest frame on a canvas (reconnect, wake lock, overlay showing the iPad's size).
 - `Config.swift`: CLI options, token saved in `~/.portraitdisplay-token`, local IP listing.
 - `main.swift`: wires it together, then `dispatchMain()`.
 
@@ -25,10 +36,10 @@ Not for the App Store, because it uses a private API.
 swift build -c release
 swift run -c release PortraitHost --width 820 --height 1180   # iPad size in points, shown on the page
 ```
-Needs Screen & System Audio Recording permission for whichever terminal app runs it.
+Needs Screen & System Audio Recording permission for whichever terminal app runs it. macOS 15+.
 
 ## Ideas not done yet
-- H.264/HEVC via VideoToolbox + WebCodecs on the iPad instead of JPEG (less bandwidth, smoother).
+- HEVC instead of H.264 (smaller again; check Safari's WebCodecs HEVC support first).
 - Touch / Apple Pencil input from the iPad back to the Mac.
 - Menu bar app wrapper instead of a Terminal command.
 - USB connection instead of Wi-Fi.

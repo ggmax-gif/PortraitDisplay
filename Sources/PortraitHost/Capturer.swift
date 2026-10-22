@@ -1,35 +1,47 @@
 import Foundation
 import CoreGraphics
-import CoreImage
 import CoreMedia
-import ImageIO
 import ScreenCaptureKit
 
 enum HostError: LocalizedError {
     case displayNotVisible
+    case encoder(OSStatus)
+    case certificate(String)
     var errorDescription: String? {
         switch self {
         case .displayNotVisible: return "The virtual display never became visible to screen capture."
+        case .encoder(let status): return "Couldn't start the H.264 encoder (\(status))."
+        case .certificate(let message): return "HTTPS setup failed: \(message)"
         }
     }
 }
 
-/// Captures the virtual display with ScreenCaptureKit and turns each new frame into a JPEG.
-/// Only changed frames arrive, and if the encoder is busy only the newest frame is kept.
+/// Captures the virtual display with ScreenCaptureKit and feeds each new frame to the H.264 encoder.
+/// Only changed frames arrive. If the encoder is busy the frame is skipped, and the newest one is
+/// encoded as soon as it frees up.
 final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
     private let config: Config
-    private let onJPEG: (Data) -> Void
+    private let encoder: VideoEncoder
     private var stream: SCStream?
     private let sampleQueue = DispatchQueue(label: "portrait.capture")
-    private let encodeQueue = DispatchQueue(label: "portrait.encode")
-    private let ciContext = CIContext(options: [.cacheIntermediates: false])
-    private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-    private var encoding = false      // only touched on sampleQueue
-    private var pending: CIImage?     // only touched on sampleQueue
+    // All below only touched on sampleQueue.
+    private var latest: CVPixelBuffer?
+    private var encoding = 0
+    private var encodeLatestWhenFree = false
+    private var idleRefresh: DispatchWorkItem?
 
-    init(config: Config, onJPEG: @escaping (Data) -> Void) {
+    init(config: Config, encoder: VideoEncoder) {
         self.config = config
-        self.onJPEG = onJPEG
+        self.encoder = encoder
+    }
+
+    /// Keyframe for a new or recovering viewer. Re-encodes the last frame, since a still screen
+    /// sends no new frames.
+    func requestKeyframe() {
+        sampleQueue.async {
+            self.encoder.requestKeyframe()
+            self.encodeLatest()
+        }
     }
 
     func start(displayID: CGDirectDisplayID, attempt: Int = 0, completion: @escaping (Error?) -> Void) {
@@ -54,7 +66,9 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
             sc.width = self.config.streamWidth
             sc.height = self.config.streamHeight
             sc.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(self.config.fps))
-            sc.pixelFormat = kCVPixelFormatType_32BGRA
+            // Hand the encoder YUV directly, with the same BT.709 matrix the encoder tags the stream with.
+            sc.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            sc.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
             sc.colorSpaceName = CGColorSpace.sRGB
             sc.showsCursor = true
             sc.queueDepth = 5
@@ -81,12 +95,15 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
               let status = SCFrameStatus(rawValue: statusRaw), status == .complete,
               let pixelBuffer = sampleBuffer.imageBuffer else { return }
 
-        let image = CIImage(cvPixelBuffer: pixelBuffer)
-        if encoding {
-            pending = image           // keep only the newest frame
-        } else {
-            encode(image)
-        }
+        latest = pixelBuffer
+        encodeLatest()
+
+        // When the screen goes still, encode the last frame once more. Frames sent during fast
+        // motion are capped by the bitrate, and this sharpens what stays on screen.
+        idleRefresh?.cancel()
+        let refresh = DispatchWorkItem { [weak self] in self?.encodeLatest() }
+        idleRefresh = refresh
+        sampleQueue.asyncAfter(deadline: .now() + 0.3, execute: refresh)
     }
 
     // MARK: SCStreamDelegate
@@ -98,21 +115,18 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
 
     // MARK: Encoding
 
-    private func encode(_ image: CIImage) {   // called on sampleQueue
-        encoding = true
-        encodeQueue.async {
-            let qualityKey = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
-            if let jpeg = self.ciContext.jpegRepresentation(of: image,
-                                                            colorSpace: self.colorSpace,
-                                                            options: [qualityKey: self.config.quality]) {
-                self.onJPEG(jpeg)
-            }
-            self.sampleQueue.async {
-                if let next = self.pending {
-                    self.pending = nil
-                    self.encode(next)
-                } else {
-                    self.encoding = false
+    private func encodeLatest() {   // called on sampleQueue
+        guard let buffer = latest else { return }
+        guard encoding < 2 else { encodeLatestWhenFree = true; return }
+        encoding += 1
+        let now = CMClockGetTime(CMClockGetHostTimeClock())
+        encoder.encode(buffer, time: now) { [weak self] in
+            self?.sampleQueue.async {
+                guard let self = self else { return }
+                self.encoding -= 1
+                if self.encodeLatestWhenFree {
+                    self.encodeLatestWhenFree = false
+                    self.encodeLatest()
                 }
             }
         }

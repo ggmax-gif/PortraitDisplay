@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "PortraitDisplay",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS("15.0")],  // kSecImportToMemoryOnly
     targets: [
         // Declarations for Apple's private CGVirtualDisplay classes (live in CoreGraphics).
         .target(
@@ -21,7 +21,8 @@ let package = Package(
             path: "Sources/PortraitHost",
             linkerSettings: [
                 .linkedFramework("ScreenCaptureKit"),
-                .linkedFramework("CoreImage"),
+                .linkedFramework("VideoToolbox"),
+                .linkedFramework("Security"),
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("Network"),
             ]
