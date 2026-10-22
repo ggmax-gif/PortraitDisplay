@@ -242,7 +242,8 @@ enum ViewerPage {
       }
       function runMomentum(now) {
         if (!momentum) return;
-        const dt = Math.min(now - momentum.last, 50);
+        // rAF's timestamp is the frame start, which can be before the pointerup that started this.
+        const dt = Math.max(0, Math.min(now - momentum.last, 50));
         momentum.last = now;
         const dx = momentum.vx * dt, dy = momentum.vy * dt;
         send(`s ${momentum.started ? "mc" : "mb"} ${delta(dx, dy)}`);

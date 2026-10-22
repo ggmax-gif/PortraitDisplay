@@ -29,6 +29,9 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
     private var encoding = 0
     private var encodeLatestWhenFree = false
     private var idleRefresh: DispatchWorkItem?
+    // Behind a lock rather than read with sampleQueue.sync: the server's stats timer must never wait
+    // on this queue, because the encoder's output handler already waits on the server's queue.
+    private let statsLock = NSLock()
     private var stats = (captured: 0, encoded: 0, encodeSeconds: 0.0)
 
     /// How many more frames the iPads can take; frames beyond that aren't encoded at all.
@@ -109,7 +112,7 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
               let pixelBuffer = sampleBuffer.imageBuffer else { return }
 
         latest = pixelBuffer
-        stats.captured += 1
+        statsLock.withLock { stats.captured += 1 }
         encodeLatest()
 
         // When the screen goes still, encode the last frame once more. Frames sent during fast
@@ -129,7 +132,7 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
 
     /// Frames captured and encoded since the last call, and the average encode time.
     func takeStats() -> (captured: Int, encoded: Int, encodeMs: Double) {
-        sampleQueue.sync {
+        statsLock.withLock {
             let s = stats
             stats = (0, 0, 0)
             return (s.captured, s.encoded, s.encoded > 0 ? s.encodeSeconds / Double(s.encoded) * 1000 : 0)
@@ -149,9 +152,13 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
             self?.sampleQueue.async {
                 guard let self = self else { return }
                 self.encoding -= 1
-                self.stats.encoded += 1
-                self.stats.encodeSeconds += ProcessInfo.processInfo.systemUptime - started
-                if self.encodeLatestWhenFree {
+                self.statsLock.withLock {
+                    self.stats.encoded += 1
+                    self.stats.encodeSeconds += ProcessInfo.processInfo.systemUptime - started
+                }
+                // A keyframe still pending means the encoder dropped the forced one. On a still
+                // screen nothing new would arrive to carry it, so re-encode the last frame now.
+                if self.encodeLatestWhenFree || self.encoder.keyframePending {
                     self.encodeLatestWhenFree = false
                     self.encodeLatest()
                 }

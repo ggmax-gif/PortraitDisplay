@@ -76,6 +76,11 @@ final class VideoEncoder {
         lock.lock(); forceKey = true; lock.unlock()
     }
 
+    var keyframePending: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return forceKey
+    }
+
     /// `completion` runs once the frame has been encoded (or dropped by the encoder).
     func encode(_ pixelBuffer: CVPixelBuffer, time: CMTime, completion: @escaping () -> Void) {
         lock.lock()

@@ -31,7 +31,7 @@ struct Config {
       --height <points>    Height of the virtual display in points  (default 1334)
                            Tip: open the page on the iPad once – the overlay shows the
                            iPad's own size; pass those numbers for a perfect fit.
-      --scale <n>          Stream pixels per point, 1 – 2           (default 2 = sharpest)
+      --scale <n>          Stream pixels per point, 0.5 – 2         (default 2 = sharpest)
       --bitrate <mbps>     H.264 bitrate cap in Mbit/s, 2 – 40      (default 20)
       --fps <n>            Max frames per second, up to 120         (default 60)
       --port <n>           Setup page port; also uses port+1, +2    (default 8080)

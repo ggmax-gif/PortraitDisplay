@@ -21,6 +21,7 @@ final class InputInjector {
     private var penButton: CGMouseButton?
     private var lastClick: (time: TimeInterval, point: CGPoint, button: CGMouseButton, count: Int64)?
     private var scrollRemainder = CGPoint.zero
+    private var scrolling = false, coasting = false   // a scroll / momentum phase is open
 
     init(displayID: CGDirectDisplayID) {
         self.displayID = displayID
@@ -35,6 +36,20 @@ final class InputInjector {
 
     func handle(_ message: String) {
         queue.async { self.process(message) }
+    }
+
+    /// The iPad went away. If it was mid-drag or mid-scroll, the "up" / "ended" will never come,
+    /// and macOS would keep the button held (every later mouse move becomes a drag).
+    func release() {
+        queue.async {
+            if let button = self.penButton {
+                self.penButton = nil
+                let at = CGEvent(source: nil)?.location ?? .zero
+                self.post(self.upType(button), at: at, button: button)
+            }
+            if self.scrolling { self.scroll(0, 0, phase: .ended) }
+            if self.coasting { self.scroll(0, 0, momentum: .end) }
+        }
     }
 
     private func process(_ message: String) {
@@ -139,6 +154,8 @@ final class InputInjector {
     }
 
     private func scroll(_ dx: Double, _ dy: Double, phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase? = nil) {
+        if let phase = phase { scrolling = phase != .ended }
+        if let momentum = momentum { coasting = momentum != .end }
         // Deltas arrive as fractions of the stream; convert to points, carrying the sub-point rest.
         let b = CGDisplayBounds(displayID)
         let x = dx * b.width + scrollRemainder.x, y = dy * b.height + scrollRemainder.y

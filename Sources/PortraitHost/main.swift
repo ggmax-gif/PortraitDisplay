@@ -43,6 +43,7 @@ server.macStats = {
 if config.input {
     let injector = InputInjector(displayID: virtualDisplay.displayID)
     server.onInput = { injector.handle($0) }
+    server.onViewerGone = { injector.release() }
     if !InputInjector.ensurePermission() {
         print("""
         Touch and Pencil input need Accessibility permission: System Settings → Privacy & Security →

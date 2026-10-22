@@ -5,14 +5,16 @@ import Network
 ///   `port`      plain HTTP – setup page and the CA certificate for the iPad to install
 ///   `port + 1`  HTTPS – the viewer page (WebCodecs only works on secure pages)
 ///   `port + 2`  secure WebSocket – codec config (text) and H.264 frames (binary)
-/// Each iPad acknowledges every frame. If too many are unacknowledged it skips frames and resumes
-/// at the next keyframe, so a slow network lowers the frame rate instead of adding lag.
+/// Each iPad acknowledges every frame, with at most 4 unacknowledged. The capturer reads `freeSlots`
+/// and doesn't encode frames the iPads can't take yet, so a slow network lowers the frame rate
+/// instead of adding lag. Dropping an already-encoded frame (rare) resumes at the next keyframe.
 final class StreamServer {
     let token: String
     var onKeyframeNeeded: (() -> Void)?
     var onInput: ((String) -> Void)?   // touch / Pencil messages from an authenticated iPad
     var macStats: (() -> String)?      // capture / encode part of the stats line
     var onRoom: (() -> Void)?          // an iPad can take more frames again
+    var onViewerGone: (() -> Void)?    // an authenticated iPad disconnected
     private let slotsLock = NSLock()
     private var slots = 0              // guarded by slotsLock
     static let statsInterval = 2.0
@@ -136,7 +138,10 @@ final class StreamServer {
         let wasAuthenticated = viewer.authenticated
         viewers.removeValue(forKey: ObjectIdentifier(viewer))
         updateSlots()
-        if wasAuthenticated { print("iPad disconnected. Viewers: \(authenticatedCount)") }
+        if wasAuthenticated {
+            print("iPad disconnected. Viewers: \(authenticatedCount)")
+            onViewerGone?()
+        }
     }
 
     private var authenticatedCount: Int { viewers.values.filter { $0.authenticated }.count }
