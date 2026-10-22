@@ -33,6 +33,19 @@ encoder.onFrame = { server.publish($0) }
 let capturer = Capturer(config: config, encoder: encoder)
 server.onKeyframeNeeded = { capturer.requestKeyframe() }
 
+if config.input {
+    let injector = InputInjector(displayID: virtualDisplay.displayID)
+    server.onInput = { injector.handle($0) }
+    if !InputInjector.ensurePermission() {
+        print("""
+        Touch and Pencil input need Accessibility permission: System Settings → Privacy & Security →
+        Accessibility → turn on the app running this (e.g. Terminal), then run this again.
+        Until then the iPad is view-only. (--no-input hides this message.)
+
+        """)
+    }
+}
+
 // Give macOS a moment to register the new display, then pick its mode and start capturing.
 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
     virtualDisplay.selectPreferredMode()

@@ -10,6 +10,7 @@ import Network
 final class StreamServer {
     let token: String
     var onKeyframeNeeded: (() -> Void)?
+    var onInput: ((String) -> Void)?   // touch / Pencil messages from an authenticated iPad
     private let config: Config
     private let queue = DispatchQueue(label: "portrait.server")
     private var codec: (message: String, version: Int)?
@@ -74,6 +75,8 @@ final class StreamServer {
     fileprivate var currentCodec: (message: String, version: Int)? { codec }
 
     fileprivate func requestKeyframe() { onKeyframeNeeded?() }
+
+    fileprivate func input(_ message: String) { onInput?(message) }
 
     private func acceptViewer(_ connection: NWConnection) {
         let viewer = Viewer(connection: connection, server: self)
@@ -239,7 +242,7 @@ private final class Viewer {
         case "key":   // the iPad's decoder failed or was reset
             resync()
         default:
-            break
+            if text.hasPrefix("c ") || text.hasPrefix("p ") || text.hasPrefix("s ") { server.input(text) }
         }
     }
 

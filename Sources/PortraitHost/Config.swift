@@ -5,6 +5,7 @@ struct Config {
     var widthPoints = 1024     // iPad Pro 12.9" Home Screen app (status bar takes 32 pt)
     var heightPoints = 1334
     var hiDPI = true
+    var input = true           // touch / Pencil from the iPad controls the Mac
     var streamScale = 2.0      // stream pixels per point (2 = full Retina sharpness)
     var fps = 60
     var bitrateMbps = 20.0     // H.264 cap; still screens use far less
@@ -35,6 +36,7 @@ struct Config {
       --fps <n>            Max frames per second, up to 120         (default 60)
       --port <n>           Setup page port; also uses port+1, +2    (default 8080)
       --no-hidpi           Non-Retina virtual display (bigger UI, blurrier text)
+      --no-input           View only: ignore touch and Pencil from the iPad
       --help               Show this help
     """
 
@@ -55,6 +57,7 @@ struct Config {
             case "--fps":     c.fps = intArg(value(), 1...120)
             case "--port":    c.httpPort = UInt16(intArg(value(), 1024...65000))
             case "--no-hidpi": c.hiDPI = false
+            case "--no-input": c.input = false
             case "--help", "-h": print(usage); exit(0)
             default: fail("Unknown option \(args[i])\n\n\(usage)")
             }

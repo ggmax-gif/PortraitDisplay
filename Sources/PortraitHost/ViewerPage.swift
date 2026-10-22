@@ -48,7 +48,11 @@ enum ViewerPage {
       html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
                    touch-action: none; -webkit-user-select: none; user-select: none;
                    -webkit-touch-callout: none; }
-      canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+      /* Keep the picture inside the safe area: in the Home Screen app the status bar and the
+         home indicator are drawn over the page, and would cover the Mac's menu bar and Dock. */
+      #stage { position: fixed; top: env(safe-area-inset-top); bottom: env(safe-area-inset-bottom);
+               left: env(safe-area-inset-left); right: env(safe-area-inset-right); }
+      canvas { width: 100%; height: 100%; display: block; }
       #hud { position: fixed; left: 10px; bottom: calc(10px + env(safe-area-inset-bottom));
              color: #9f9; background: rgba(0,0,0,.6); font: 12px ui-monospace, Menlo, monospace;
              padding: 6px 8px; border-radius: 6px; line-height: 1.5; pointer-events: none; }
@@ -56,7 +60,7 @@ enum ViewerPage {
     </style>
     </head>
     <body>
-    <canvas id="c"></canvas>
+    <div id="stage"><canvas id="c"></canvas></div>
     <div id="hud">connecting…</div>
     <script>
     (() => {
@@ -72,8 +76,9 @@ enum ViewerPage {
 
       function resize() {
         const dpr = window.devicePixelRatio || 1;
-        canvas.width = Math.round(window.innerWidth * dpr);
-        canvas.height = Math.round(window.innerHeight * dpr);
+        const box = canvas.getBoundingClientRect();
+        canvas.width = Math.round(box.width * dpr);
+        canvas.height = Math.round(box.height * dpr);
         draw();
       }
 
@@ -91,15 +96,17 @@ enum ViewerPage {
       }
 
       function updateHud() {
+        const box = canvas.getBoundingClientRect();
+        const area = { w: Math.round(box.width), h: Math.round(box.height) };
         const size = codec ? `${codec.width}×${codec.height}` : "–";
         hud.innerHTML =
           `${status}<br>` +
           `${rate} updates/s · ${kbps >= 1000 ? (kbps / 1000).toFixed(1) + " Mbit/s" : kbps + " kbit/s"}` +
           ` · H.264 ${size}<br>` +
-          `this iPad: ${window.innerWidth}×${window.innerHeight} pt ` +
-          `→ <b>--width ${Math.min(window.innerWidth, window.innerHeight)} ` +
-          `--height ${Math.max(window.innerWidth, window.innerHeight)}</b><br>` +
-          `tap to hide/show · double-tap for full screen`;
+          `usable area: ${area.w}×${area.h} pt ` +
+          `→ <b>--width ${Math.min(area.w, area.h)} --height ${Math.max(area.w, area.h)}</b><br>` +
+          `Pencil: point &amp; drag · finger: tap = click, drag = scroll<br>` +
+          `2-finger tap = right-click · 3-finger tap = hide/show this`;
       }
 
       function showHudBriefly() {
@@ -195,20 +202,124 @@ enum ViewerPage {
         } catch (_) {}
       }
 
-      let lastTap = 0;
-      document.addEventListener("touchend", (e) => {
+      // ---- Input. Pencil (or a mouse) is the pointer: tap clicks, drag drags.
+      // Fingers: tap = click, drag = scroll (with momentum), two-finger tap = right-click,
+      // three-finger tap = show/hide the overlay. Positions are sent as 0–1 across the stream.
+      const touches = new Map();   // pointerId -> {x, y}
+      let gesture = null, momentum = null;
+      const f = (v) => v.toFixed(5);
+
+      function streamRect() {
+        const box = canvas.getBoundingClientRect();
+        const s = Math.min(box.width / codec.width, box.height / codec.height);
+        const w = codec.width * s, h = codec.height * s;
+        return { x: box.left + (box.width - w) / 2, y: box.top + (box.height - h) / 2, w, h };
+      }
+      function at(x, y) { const r = streamRect(); return `${f((x - r.x) / r.w)} ${f((y - r.y) / r.h)}`; }
+      function delta(dx, dy) { const r = streamRect(); return `${f(dx / r.w)} ${f(dy / r.h)}`; }
+      function centroid() {
+        let x = 0, y = 0;
+        for (const t of touches.values()) { x += t.x; y += t.y; }
+        return { x: x / touches.size, y: y / touches.size };
+      }
+      function pen(e) {
+        return `${f(e.pressure || 0.5)} ${f((e.tiltX || 0) / 90)} ${f((e.tiltY || 0) / 90)}`;
+      }
+
+      function stopMomentum() {
+        if (momentum) { send("s me"); momentum = null; }
+      }
+      function runMomentum(now) {
+        if (!momentum) return;
+        const dt = Math.min(now - momentum.last, 50);
+        momentum.last = now;
+        const dx = momentum.vx * dt, dy = momentum.vy * dt;
+        send(`s ${momentum.started ? "mc" : "mb"} ${delta(dx, dy)}`);
+        momentum.started = true;
+        const decay = Math.pow(0.95, dt / 16.7);
+        momentum.vx *= decay; momentum.vy *= decay;
+        if (Math.hypot(momentum.vx, momentum.vy) < 0.02) { stopMomentum(); return; }
+        requestAnimationFrame(runMomentum);
+      }
+
+      canvas.addEventListener("pointerdown", (e) => {
         e.preventDefault();
-        keepAwake();
-        const now = Date.now();
-        if (now - lastTap < 300) {
-          const el = document.documentElement;
-          const fs = el.requestFullscreen || el.webkitRequestFullscreen;
-          if (fs) { try { fs.call(el); } catch (_) {} }
-        } else {
-          hud.classList.toggle("hidden");
+        if (!codec) return;
+        if (e.pointerType !== "touch") {
+          canvas.setPointerCapture(e.pointerId);
+          send(`p d ${at(e.clientX, e.clientY)} ${pen(e)} ${e.button === 2 ? 1 : 0}`);
+          return;
         }
-        lastTap = now;
-      }, { passive: false });
+        stopMomentum();
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const c = centroid();
+        if (!gesture) {
+          gesture = { kind: "pending", start: c, startTime: performance.now(), fingers: 1, last: c, samples: [] };
+        } else {
+          gesture.fingers = Math.max(gesture.fingers, touches.size);
+          gesture.last = c;   // re-anchor so adding a finger doesn't jump the scroll
+        }
+      });
+
+      canvas.addEventListener("pointermove", (e) => {
+        if (!codec) return;
+        if (e.pointerType !== "touch") {
+          send(e.buttons ? `p m ${at(e.clientX, e.clientY)} ${pen(e)}` : `p h ${at(e.clientX, e.clientY)}`);
+          return;
+        }
+        if (!touches.has(e.pointerId) || !gesture) return;
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const c = centroid();
+        if (gesture.kind === "pending" && gesture.fingers <= 2 &&
+            Math.hypot(c.x - gesture.start.x, c.y - gesture.start.y) > 10) {
+          gesture.kind = "scroll";
+          send(`s b ${at(gesture.start.x, gesture.start.y)} ${delta(c.x - gesture.last.x, c.y - gesture.last.y)}`);
+          gesture.last = c;
+          return;
+        }
+        if (gesture.kind !== "scroll") return;
+        const dx = c.x - gesture.last.x, dy = c.y - gesture.last.y;
+        gesture.last = c;
+        const now = performance.now();
+        gesture.samples.push({ t: now, dx, dy });
+        while (gesture.samples.length && now - gesture.samples[0].t > 100) gesture.samples.shift();
+        send(`s c ${delta(dx, dy)}`);
+      });
+
+      function pointerEnd(e) {
+        if (e.pointerType !== "touch") {
+          if (codec) send(`p u ${at(e.clientX, e.clientY)}`);
+          return;
+        }
+        if (!touches.delete(e.pointerId) || !gesture) return;
+        if (touches.size > 0) { gesture.last = centroid(); return; }   // wait for the last finger
+        const g = gesture;
+        gesture = null;
+        if (g.kind === "scroll") {
+          send("s e");
+          const now = performance.now();
+          const recent = g.samples.filter((s) => now - s.t < 100);
+          const span = recent.length ? now - recent[0].t + 8 : 0;
+          if (span > 0 && e.type === "pointerup") {
+            const vx = recent.reduce((a, s) => a + s.dx, 0) / span;
+            const vy = recent.reduce((a, s) => a + s.dy, 0) / span;
+            if (Math.hypot(vx, vy) > 0.3) {
+              momentum = { vx, vy, last: now, started: false };
+              requestAnimationFrame(runMomentum);
+            }
+          }
+        } else if (e.type === "pointerup" && performance.now() - g.startTime < 400) {
+          if (g.fingers === 1) send(`c ${at(g.start.x, g.start.y)} 0`);
+          else if (g.fingers === 2) send(`c ${at(g.start.x, g.start.y)} 1`);
+          else hud.classList.toggle("hidden");
+        }
+      }
+      canvas.addEventListener("pointerup", pointerEnd);
+      canvas.addEventListener("pointercancel", pointerEnd);
+      canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+      // Stop Safari's own double-tap zoom and callouts; touchend also counts as a user gesture for the wake lock.
+      document.addEventListener("touchend", (e) => { e.preventDefault(); keepAwake(); }, { passive: false });
       document.addEventListener("click", keepAwake);
       document.addEventListener("visibilitychange", () => { if (!document.hidden) keepAwake(); });
       window.addEventListener("resize", () => { resize(); updateHud(); });

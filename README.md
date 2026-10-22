@@ -31,7 +31,21 @@ Terminal prints an address like `http://192.168.1.23:8080/?t=…`.
 4. On that page tap **Share → Add to Home Screen**, then open it from the Home Screen for a
    full-screen view. The link stays the same between runs, so this only needs doing once.
    (A Home Screen icon from the old JPEG version points at the http page; delete it and re-add.)
-5. Tap the screen to show or hide the info overlay. Double-tap for full screen in normal Safari.
+5. Tap with three fingers to show or hide the info overlay.
+
+## Touch and Apple Pencil
+
+| On the iPad | On the Mac |
+|---|---|
+| Pencil tap / drag | Click / drag (with pressure and tilt) |
+| Finger tap | Click (tap twice for a double-click) |
+| Finger drag, one or two fingers | Scroll, with momentum |
+| Two-finger tap | Right-click |
+| Three-finger tap | Show or hide the overlay |
+
+A mouse or trackpad connected to the iPad works like the Pencil.
+This needs **Accessibility** permission for Terminal on the Mac: System Settings → Privacy & Security
+→ Accessibility. Run with `--no-input` to keep the iPad view-only.
 
 ## On the Mac
 
@@ -58,6 +72,7 @@ Other options (`--help` lists them all):
 | `--fps 30` | 60 | Max updates per second. Lower it if the iPad can't keep up |
 | `--port 9090` | 8080 | Uses this port and the next two (8080–8082). Change if they're taken |
 | `--no-hidpi` | off | Bigger UI, less sharp |
+| `--no-input` | off | Ignore touch and Pencil (view only) |
 
 ## Notes
 

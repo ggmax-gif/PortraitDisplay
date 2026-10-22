@@ -23,11 +23,15 @@ Not for the App Store, because it uses a private API.
 - `StreamServer.swift`: Network.framework. HTTP on `--port` (default 8080) serves the setup page and
   the CA. HTTPS on port+1 serves the viewer page and manifest. Secure WebSocket on port+2: client sends
   `hello <token>`, server sends codec config (JSON text) before keyframes and frames as binary
-  (1-byte keyframe flag + AVCC). Client sends `ack` per frame and `key` after a decoder error. More
+  (1-byte keyframe flag + AVCC). Client sends `ack` per frame, `key` after a decoder error, and input messages (`c`/`p`/`s …`). More
   than 4 unacked frames → skip until the next keyframe.
 - `SetupPage.swift` / `ViewerPage.swift`: the iPad pages, raw Swift strings with `__PLACEHOLDER__`s.
   The setup page forwards to HTTPS once the cert is trusted. The viewer decodes with `VideoDecoder`
   and draws the newest frame on a canvas (reconnect, wake lock, overlay showing the iPad's size).
+- `InputInjector.swift`: touch / Pencil messages → CGEvent mouse, tablet-pressure and phased scroll
+  events on the virtual display (needs Accessibility permission). Message format is in its header.
+  The viewer page does the gesture recognition: Pencil/mouse = pointer, finger tap = click,
+  finger drag = scroll with JS-side momentum, two-finger tap = right-click, three-finger tap = overlay.
 - `Config.swift`: CLI options, token saved in `~/.portraitdisplay-token`, local IP listing.
 - `main.swift`: wires it together, then `dispatchMain()`.
 
@@ -36,10 +40,10 @@ Not for the App Store, because it uses a private API.
 swift build -c release
 swift run -c release PortraitHost   # defaults to 1024×1334 pt @ 60 fps (iPad Pro 12.9" Home Screen app)
 ```
-Needs Screen & System Audio Recording permission for whichever terminal app runs it. macOS 15+.
+Needs Screen & System Audio Recording permission, and Accessibility for touch input, for whichever
+terminal app runs it. macOS 15+.
 
 ## Ideas not done yet
 - HEVC instead of H.264 (smaller again; check Safari's WebCodecs HEVC support first).
-- Touch / Apple Pencil input from the iPad back to the Mac.
 - Menu bar app wrapper instead of a Terminal command.
 - USB connection instead of Wi-Fi.
