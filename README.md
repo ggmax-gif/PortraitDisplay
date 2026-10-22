@@ -41,8 +41,9 @@ Press **Ctrl+C** in Terminal to stop, and the monitor disappears.
 
 ## Make it fit your iPad exactly
 
-The overlay on the iPad shows its own size, for example `--width 820 --height 1180`.
-Run with those numbers:
+The default, 1024×1334, fits an iPad Pro 12.9" running the Home Screen app (its status bar
+takes 32 of the 1366 points). For any other iPad, or in a Safari tab, the overlay shows the size
+to use, for example `--width 820 --height 1180`. Run with those numbers:
 
 ```bash
 swift run -c release PortraitHost --width 820 --height 1180

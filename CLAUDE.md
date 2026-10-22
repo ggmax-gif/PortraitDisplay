@@ -34,7 +34,7 @@ Not for the App Store, because it uses a private API.
 ## Build / run
 ```
 swift build -c release
-swift run -c release PortraitHost --width 820 --height 1180   # iPad size in points, shown on the page
+swift run -c release PortraitHost   # defaults to 1024×1334 pt @ 60 fps (iPad Pro 12.9" Home Screen app)
 ```
 Needs Screen & System Audio Recording permission for whichever terminal app runs it. macOS 15+.
 

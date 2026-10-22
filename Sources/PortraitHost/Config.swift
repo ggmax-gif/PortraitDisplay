@@ -2,8 +2,8 @@ import Foundation
 
 /// Command-line options. Sizes are in points (what macOS calls "looks like" resolution).
 struct Config {
-    var widthPoints = 900
-    var heightPoints = 1200
+    var widthPoints = 1024     // iPad Pro 12.9" Home Screen app (status bar takes 32 pt)
+    var heightPoints = 1334
     var hiDPI = true
     var streamScale = 2.0      // stream pixels per point (2 = full Retina sharpness)
     var fps = 60
@@ -26,8 +26,8 @@ struct Config {
 
     Usage: swift run -c release PortraitHost [options]
 
-      --width <points>     Width of the virtual display in points   (default 900)
-      --height <points>    Height of the virtual display in points  (default 1200)
+      --width <points>     Width of the virtual display in points   (default 1024)
+      --height <points>    Height of the virtual display in points  (default 1334)
                            Tip: open the page on the iPad once – the overlay shows the
                            iPad's own size; pass those numbers for a perfect fit.
       --scale <n>          Stream pixels per point, 1 – 2           (default 2 = sharpest)
