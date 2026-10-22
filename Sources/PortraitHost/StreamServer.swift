@@ -4,7 +4,7 @@ import Network
 /// Three listeners:
 ///   `port`      plain HTTP – setup page and the CA certificate for the iPad to install
 ///   `port + 1`  HTTPS – the viewer page (WebCodecs only works on secure pages)
-///   `port + 2`  secure WebSocket – codec config (text) and H.264 frames (binary)
+///   `port + 2`  secure WebSocket – codec config (text) and H.264 / HEVC frames (binary)
 /// Each iPad acknowledges every frame, with at most 4 unacknowledged. The capturer reads `freeSlots`
 /// and doesn't encode frames the iPads can't take yet, so a slow network lowers the frame rate
 /// instead of adding lag. Dropping an already-encoded frame (rare) resumes at the next keyframe.
@@ -15,6 +15,8 @@ final class StreamServer {
     var macStats: (() -> String)?      // capture / encode part of the stats line
     var onRoom: (() -> Void)?          // an iPad can take more frames again
     var onViewerGone: (() -> Void)?    // an authenticated iPad disconnected
+    var onCodecWanted: ((VideoCodec) -> Void)?
+    private var wantedCodec: VideoCodec
     private let slotsLock = NSLock()
     private var slots = 0              // guarded by slotsLock
     static let statsInterval = 2.0
@@ -28,7 +30,11 @@ final class StreamServer {
     init(config: Config, token: String) {
         self.config = config
         self.token = token
+        wantedCodec = config.codec
     }
+
+    /// The codec the encoder should start with.
+    var initialCodec: VideoCodec { wantedCodec }
 
     func start(tls: NWProtocolTLS.Options) throws {
         // Secure WebSocket listener for frames
@@ -83,7 +89,7 @@ final class StreamServer {
     func publish(_ newConfig: CodecConfig) {
         let message = """
         {"codec":"\(newConfig.codec)","width":\(newConfig.width),"height":\(newConfig.height),\
-        "description":"\(newConfig.avcC.base64EncodedString())"}
+        "description":"\(newConfig.description.base64EncodedString())"}
         """
         queue.sync {
             self.codec = (message, (self.codec?.version ?? 0) + 1)
@@ -132,8 +138,21 @@ final class StreamServer {
     }
 
     fileprivate func viewerAuthenticated(_ viewer: Viewer) {
-        print("iPad connected (\(endpointName(viewer.connection))). Viewers: \(authenticatedCount)")
+        print("iPad connected (\(endpointName(viewer.connection)), "
+              + "\(viewer.decodesHEVC ? "decodes HEVC" : "H.264 only")). Viewers: \(authenticatedCount)")
         Status.emit("viewers", String(authenticatedCount))
+        chooseCodec()
+    }
+
+    /// With --codec hevc: one encoder serves every iPad, so HEVC only while all of them can decode it.
+    /// With nobody connected, the current choice stays.
+    private func chooseCodec() {
+        let connected = viewers.values.filter { $0.authenticated }
+        guard !connected.isEmpty else { return }
+        let codec: VideoCodec = config.codec == .hevc && connected.allSatisfy { $0.decodesHEVC } ? .hevc : .h264
+        guard codec != wantedCodec else { return }
+        wantedCodec = codec
+        onCodecWanted?(codec)
     }
 
     fileprivate func viewerClosed(_ viewer: Viewer) {
@@ -143,6 +162,7 @@ final class StreamServer {
         if wasAuthenticated {
             print("iPad disconnected. Viewers: \(authenticatedCount)")
             Status.emit("viewers", String(authenticatedCount))
+            chooseCodec()
             onViewerGone?()
         }
     }
@@ -240,8 +260,9 @@ private final class Viewer {
     let connection: NWConnection
     unowned let server: StreamServer
     var authenticated = false
+    private(set) var decodesHEVC = false
     private var inFlight = 0
-    private var waitingForKey = true     // H.264 deltas are useless until the next keyframe
+    private var waitingForKey = true     // deltas are useless until the next keyframe
     private var keyRequested = false
     private var codecVersionSent = 0
     private var closed = false
@@ -289,7 +310,10 @@ private final class Viewer {
 
     private func handle(_ text: String) {
         if !authenticated {
-            guard text == "hello " + server.token else { close(); return }
+            // "hello <token>", plus " hevc" if the iPad's decoder supports HEVC.
+            let words = text.split(separator: " ")
+            guard words.count >= 2, words[0] == "hello", words[1] == server.token else { close(); return }
+            decodesHEVC = words.dropFirst(2).contains("hevc")
             authenticated = true
             server.viewerAuthenticated(self)
             resync()

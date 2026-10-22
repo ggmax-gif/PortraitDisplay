@@ -8,7 +8,8 @@ struct Config {
     var input = true           // touch / Pencil from the iPad controls the Mac
     var streamScale = 2.0      // stream pixels per point (2 = full Retina sharpness)
     var fps = 60
-    var bitrateMbps = 20.0     // H.264 cap; still screens use far less
+    var bitrateMbps = 20.0     // encoder cap; still screens use far less
+    var codec = VideoCodec.h264  // .hevc = HEVC while every iPad can decode it, else H.264
     var httpPort: UInt16 = 8080
     var name = "Portrait iPad"
     var statusLines = false    // set by the menu bar app
@@ -33,7 +34,9 @@ struct Config {
                            Tip: open the page on the iPad once – the overlay shows the
                            iPad's own size; pass those numbers for a perfect fit.
       --scale <n>          Stream pixels per point, 0.5 – 2         (default 2 = sharpest)
-      --bitrate <mbps>     H.264 bitrate cap in Mbit/s, 2 – 40      (default 20)
+      --bitrate <mbps>     Video bitrate cap in Mbit/s, 2 – 40      (default 20)
+      --codec <name>       h264 or hevc. hevc: ~40% less data while things move, a little
+                           softer once still; H.264 for iPads that can't decode it (default h264)
       --fps <n>            Max frames per second, up to 120         (default 60)
       --port <n>           Setup page port; also uses port+1, +2    (default 8080)
       --no-hidpi           Non-Retina virtual display (bigger UI, blurrier text)
@@ -57,6 +60,9 @@ struct Config {
             case "--scale":   c.streamScale = doubleArg(value(), 0.5...2.0)
             case "--bitrate": c.bitrateMbps = doubleArg(value(), 2...40)
             case "--fps":     c.fps = intArg(value(), 1...120)
+            case "--codec":
+                guard let codec = VideoCodec(rawValue: value()) else { fail("--codec should be h264 or hevc") }
+                c.codec = codec
             case "--port":    c.httpPort = UInt16(intArg(value(), 1024...65000))
             case "--no-hidpi": c.hiDPI = false
             case "--no-input": c.input = false

@@ -93,7 +93,8 @@ Other options (`--help` lists them all):
 | Option | Default | What it does |
 |---|---|---|
 | `--scale 1.5` | 2 | Lower = less Wi-Fi traffic, slightly softer text |
-| `--bitrate 10` | 20 | H.264 cap in Mbit/s while things move. Lower for slow Wi-Fi |
+| `--bitrate 10` | 20 | Video cap in Mbit/s while things move. Lower for slow Wi-Fi |
+| `--codec hevc` | h264 | About 40% less data while scrolling, half when the whole screen changes; text a little softer once the screen is still. Falls back to H.264 for an iPad that can't decode HEVC |
 | `--fps 30` | 60 | Max updates per second. Lower it if the iPad can't keep up |
 | `--port 9090` | 8080 | Uses this port and the next two (8080–8082). Change if they're taken |
 | `--no-hidpi` | off | Bigger UI, less sharp |

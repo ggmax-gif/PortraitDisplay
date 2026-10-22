@@ -1,6 +1,6 @@
 import Foundation
 
-/// The page the iPad opens in Safari (over HTTPS). Decodes the H.264 stream with WebCodecs,
+/// The page the iPad opens in Safari (over HTTPS). Decodes the H.264 / HEVC stream with WebCodecs,
 /// draws the newest frame full screen and acknowledges every frame it receives.
 enum ViewerPage {
     static func html(token: String, wsPort: UInt16, name: String) -> String {
@@ -74,6 +74,11 @@ enum ViewerPage {
       let frames = 0, bytes = 0, rate = 0, kbps = 0, status = "connecting…";
       let pipeline = "", received = new Map(), decodeSum = 0, decodeCount = 0;
       let wakeLock = null, hudTimer = null;
+      // Told to the Mac in "hello"; it sends HEVC only if every iPad can decode it.
+      let hevcOK = ("VideoDecoder" in window)
+        ? VideoDecoder.isConfigSupported({ codec: "hvc1.1.6.L153.B0" }).then((r) => r.supported, () => false)
+        : Promise.resolve(false);
+      let decodedSinceConfig = false;
 
       function resize() {
         const dpr = window.devicePixelRatio || 1;
@@ -104,7 +109,7 @@ enum ViewerPage {
           `${status}<br>` +
           (pipeline ? `${pipeline}<br>` : "") +
           `${rate} updates/s · ${kbps >= 1000 ? (kbps / 1000).toFixed(1) + " Mbit/s" : kbps + " kbit/s"}` +
-          ` · H.264 ${size}<br>` +
+          ` · ${codec && codec.codec.startsWith("hvc1") ? "HEVC" : "H.264"} ${size}<br>` +
           `usable area: ${area.w}×${area.h} pt ` +
           `→ <b>--width ${Math.min(area.w, area.h)} --height ${Math.max(area.w, area.h)}</b><br>` +
           `Pencil: point &amp; drag · finger: tap = click, drag = scroll<br>` +
@@ -126,6 +131,7 @@ enum ViewerPage {
         if (decoder && decoder.state !== "closed") { try { decoder.close(); } catch (_) {} }
         decoder = null;
         needKey = true;
+        decodedSinceConfig = false;
         received.clear();
         if (!codec) return;
         decoder = new VideoDecoder({
@@ -135,6 +141,7 @@ enum ViewerPage {
               received.delete(frame.timestamp);
               decodeSum += performance.now() - t0; decodeCount++;
             }
+            decodedSinceConfig = true;
             // Keep only the newest frame; draw it on the next screen refresh.
             if (current) current.close();
             current = frame;
@@ -143,6 +150,14 @@ enum ViewerPage {
           },
           error: (e) => {
             console.error(e);
+            if (codec.codec.startsWith("hvc1") && !decodedSinceConfig) {
+              // Claimed HEVC support but can't decode this stream: reconnect and ask for H.264.
+              hevcOK = Promise.resolve(false);
+              status = "HEVC failed – switching to H.264";
+              updateHud();
+              try { ws.close(); } catch (_) {}
+              return;
+            }
             status = "decoder error – resyncing";
             updateHud();
             resetDecoder();
@@ -180,9 +195,9 @@ enum ViewerPage {
         status = "connecting…"; updateHud();
         ws = new WebSocket(`wss://${location.hostname}:${WS_PORT}/`);
         ws.binaryType = "arraybuffer";
-        ws.onopen = () => {
+        ws.onopen = async () => {
           status = "connected";
-          ws.send("hello " + TOKEN);
+          ws.send("hello " + TOKEN + ((await hevcOK) ? " hevc" : ""));
           updateHud(); showHudBriefly();
         };
         ws.onmessage = (event) => {

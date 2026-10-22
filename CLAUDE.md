@@ -14,9 +14,17 @@ Not for the App Store, because it uses a private API.
   the encoder. It only encodes when the iPad has room (`StreamServer.freeSlots`); otherwise the newest
   frame waits. Skipping before encoding is free; skipping after costs a keyframe (that made video stutter). 0.3 s after the screen goes
   still it re-encodes the last frame once to sharpen it; keyframe requests also re-encode it.
-- `VideoEncoder.swift`: VideoToolbox H.264 (High, no B-frames, real time), output as AVCC + avcC.
-  Only a bitrate cap (`--bitrate`): the hardware H.264 encoder ignores `Quality`. Keyframes only on
-  request; `MaxKeyFrameInterval` is Int32.max because 0 measured a keyframe every ~2 s.
+- `VideoEncoder.swift`: VideoToolbox H.264 (High) or HEVC (Main, `--codec hevc`), no B-frames, real time,
+  output as length-prefixed NALs + avcC / hvcC. Only a bitrate cap (`--bitrate`): both hardware encoders
+  ignore `Quality`, and `MaxAllowedFrameQP` overrides the cap (and is ignored if changed mid-session).
+  Keyframes only on request; `MaxKeyFrameInterval` is Int32.max because 0 measured a keyframe every ~2 s.
+  `switchCodec` swaps the session at the next frame (a keyframe with a new config).
+  HEVC vs H.264, measured on scrolling text at 2048×2668: 4.1 vs 6.6 Mbit/s at the same PSNR (needs
+  `PrioritizeEncodingSpeedOverQuality` off, else HEVC is 4 dB worse), but the settled still frame is
+  43.6 vs 46.4 dB. So H.264 stays the default.
+- Codec negotiation: the viewer sends `hello <token> hevc` if `VideoDecoder.isConfigSupported` says so.
+  With `--codec hevc` the server uses HEVC only while every connected iPad can decode it. If an HEVC
+  config fails before any frame decodes, the viewer reconnects without `hevc`.
 - `H264NoReorder.swift`: patches the SPS in the avcC to say `max_num_reorder_frames = 0`. Without it,
   decoders hold back up to 7 frames (seen in Chrome), so the last change on a still screen never shows.
 - `Certificates.swift`: WebCodecs needs a secure context, so the page is HTTPS. A local CA in
@@ -57,5 +65,4 @@ Needs Screen & System Audio Recording permission, and Accessibility for touch in
 terminal app runs it. macOS 15+.
 
 ## Ideas not done yet
-- HEVC instead of H.264 (smaller again; check Safari's WebCodecs HEVC support first).
 - USB connection instead of Wi-Fi.

@@ -5,18 +5,18 @@ import ScreenCaptureKit
 
 enum HostError: LocalizedError {
     case displayNotVisible
-    case encoder(OSStatus)
+    case encoder(String, OSStatus)
     case certificate(String)
     var errorDescription: String? {
         switch self {
         case .displayNotVisible: return "The virtual display never became visible to screen capture."
-        case .encoder(let status): return "Couldn't start the H.264 encoder (\(status))."
+        case .encoder(let codec, let status): return "Couldn't start the \(codec) encoder (\(status))."
         case .certificate(let message): return "HTTPS setup failed: \(message)"
         }
     }
 }
 
-/// Captures the virtual display with ScreenCaptureKit and feeds each new frame to the H.264 encoder.
+/// Captures the virtual display with ScreenCaptureKit and feeds each new frame to the video encoder.
 /// Only changed frames arrive. If the encoder is busy, or the iPad hasn't caught up, the frame is
 /// skipped and the newest one is encoded as soon as there's room.
 final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {

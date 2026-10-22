@@ -33,8 +33,8 @@ do {
 
 let encoder: VideoEncoder
 do {
-    encoder = try VideoEncoder(width: config.streamWidth, height: config.streamHeight,
-                               fps: config.fps, bitrateMbps: config.bitrateMbps)
+    encoder = try VideoEncoder(codec: server.initialCodec, width: config.streamWidth,
+                               height: config.streamHeight, fps: config.fps, bitrateMbps: config.bitrateMbps)
 } catch {
     fail(error.localizedDescription)
 }
@@ -43,12 +43,16 @@ encoder.onFrame = { server.publish($0) }
 
 let capturer = Capturer(config: config, encoder: encoder)
 server.onKeyframeNeeded = { capturer.requestKeyframe() }
+server.onCodecWanted = { codec in
+    encoder.switchCodec(to: codec)
+    capturer.requestKeyframe()   // a still screen sends nothing new to carry the switch
+}
 capturer.freeSlots = { server.freeSlots }
 server.onRoom = { capturer.roomAvailable() }
 server.macStats = {
     let s = capturer.takeStats(), t = StreamServer.statsInterval
-    return String(format: "Mac: captured %.0f/s, encoded %.0f/s in %.0f ms",
-                  Double(s.captured) / t, Double(s.encoded) / t, s.encodeMs)
+    return String(format: "Mac: captured %.0f/s, encoded %.0f/s (%@) in %.0f ms",
+                  Double(s.captured) / t, Double(s.encoded) / t, encoder.codec.name, s.encodeMs)
 }
 
 if config.input {
@@ -84,7 +88,8 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             exit(1)
         }
         Status.emit("running", virtualDisplay.currentModeDescription)
-        print("Capturing at up to \(config.fps) fps, H.264 \(config.streamWidth)×\(config.streamHeight) px, "
+        let codec = config.codec == .hevc ? "HEVC (H.264 for iPads without it)" : "H.264"
+        print("Capturing at up to \(config.fps) fps, \(codec) \(config.streamWidth)×\(config.streamHeight) px, "
               + "max \(Int(config.bitrateMbps)) Mbit/s.")
     }
 }
@@ -104,7 +109,7 @@ for entry in addresses {
 print("""
 
  The first time, that page shows how to install this Mac's certificate
- (needed for the H.264 decoder). Then it opens the display by itself.
+ (needed for the video decoder). Then it opens the display by itself.
  Add it to the Home Screen from there (Share → Add to Home Screen).
  Move windows onto "\(config.name)" like any other monitor
  (arrange it in System Settings → Displays → Arrange…).

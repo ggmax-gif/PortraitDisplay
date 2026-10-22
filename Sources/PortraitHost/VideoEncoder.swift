@@ -2,8 +2,13 @@ import Foundation
 import CoreMedia
 import VideoToolbox
 
-/// One encoded H.264 frame in AVCC form (4-byte length-prefixed NAL units), which is what
-/// WebCodecs expects when the decoder is configured with an avcC `description`.
+enum VideoCodec: String {
+    case h264, hevc
+    var name: String { self == .hevc ? "HEVC" : "H.264" }
+}
+
+/// One encoded frame as 4-byte length-prefixed NAL units, which is what WebCodecs expects when
+/// the decoder is configured with an avcC / hvcC `description`.
 struct EncodedFrame {
     let data: Data
     let isKey: Bool
@@ -11,43 +16,57 @@ struct EncodedFrame {
 
 /// What the iPad's VideoDecoder needs before the first keyframe.
 struct CodecConfig: Equatable {
-    let codec: String    // e.g. "avc1.640033", built from the SPS profile/level bytes
-    let avcC: Data
+    let codec: String    // e.g. "avc1.640033" or "hvc1.1.6.L153.B0", built from the avcC / hvcC header
+    let description: Data
     let width: Int
     let height: Int
 }
 
-/// Hardware H.264 encoder (VideoToolbox) tuned for low latency: no B-frames, no frame delay,
-/// keyframes only on request (new viewer, decoder error, viewer fell behind).
+/// Hardware H.264 or HEVC encoder (VideoToolbox) tuned for low latency: no B-frames, no frame delay,
+/// keyframes only on request (new viewer, decoder error, viewer fell behind, codec switch).
 final class VideoEncoder {
     var onConfig: ((CodecConfig) -> Void)?
     var onFrame: ((EncodedFrame) -> Void)?
 
-    private let session: VTCompressionSession
+    private var session: VTCompressionSession   // only touched in encode(), on the capturer's queue
+    private var sessionCodec: VideoCodec        // same
     private let width: Int
     private let height: Int
+    private let fps: Int
+    private let bitrateMbps: Double
     private let lock = NSLock()
     private var forceKey = true          // guarded by lock
+    private var wantedCodec: VideoCodec  // guarded by lock
     private var lastConfig: CodecConfig?  // only touched in VT's output handler, which is serial
 
-    init(width: Int, height: Int, fps: Int, bitrateMbps: Double) throws {
+    init(codec: VideoCodec, width: Int, height: Int, fps: Int, bitrateMbps: Double) throws {
         self.width = width
         self.height = height
+        self.fps = fps
+        self.bitrateMbps = bitrateMbps
+        session = try Self.makeSession(codec: codec, width: width, height: height, fps: fps, bitrateMbps: bitrateMbps)
+        sessionCodec = codec
+        wantedCodec = codec
+    }
 
+    private static func makeSession(codec: VideoCodec, width: Int, height: Int, fps: Int,
+                                    bitrateMbps: Double) throws -> VTCompressionSession {
         var created: VTCompressionSession?
         let spec = [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true] as CFDictionary
         let status = VTCompressionSessionCreate(
             allocator: nil, width: Int32(width), height: Int32(height),
-            codecType: kCMVideoCodecType_H264, encoderSpecification: spec,
+            codecType: codec == .hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264, encoderSpecification: spec,
             imageBufferAttributes: nil, compressedDataAllocator: nil,
             outputCallback: nil, refcon: nil, compressionSessionOut: &created)
-        guard status == noErr, let session = created else { throw HostError.encoder(status) }
-        self.session = session
+        guard status == noErr, let session = created else { throw HostError.encoder(codec.name, status) }
 
         let bytesPerSecond = bitrateMbps * 1_000_000 / 8
-        let properties: [(CFString, CFTypeRef)] = [
+        // HEVC needs no SPS patch like H.264's: with reordering off, VideoToolbox's HEVC SPS
+        // already says sps_max_num_reorder_pics = 0.
+        let profile = codec == .hevc ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_High_AutoLevel
+        var properties: [(CFString, CFTypeRef)] = [
             (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue),
-            (kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel),
+            (kVTCompressionPropertyKey_ProfileLevel, profile),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),
             (kVTCompressionPropertyKey_ExpectedFrameRate, fps as CFNumber),
             // No periodic keyframes: each is ~300 KB, a visible hitch on slow Wi-Fi. Viewers ask for
@@ -61,11 +80,19 @@ final class VideoEncoder {
             (kVTCompressionPropertyKey_TransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2),
             (kVTCompressionPropertyKey_YCbCrMatrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2),
         ]
+        if codec == .hevc {
+            // Measured on scrolling text at 2048×2668: 38% fewer bits than H.264 at the same quality
+            // with this off, but 4 dB worse than H.264 with it on. Costs ~4 ms more per frame.
+            // (H.264's output is identical either way. Quality is ignored by both; a QP cap overrides
+            // the bitrate cap, ~140 Mbit/s when the whole screen changes.)
+            properties.append((kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, kCFBooleanFalse))
+        }
         for (key, value) in properties {
             let s = VTSessionSetProperty(session, key: key, value: value)
             if s != noErr { print("Note: encoder ignored \(key) (\(s))") }
         }
         VTCompressionSessionPrepareToEncodeFrames(session)
+        return session
     }
 
     deinit {
@@ -74,6 +101,16 @@ final class VideoEncoder {
 
     func requestKeyframe() {
         lock.lock(); forceKey = true; lock.unlock()
+    }
+
+    /// Takes effect at the next frame, which is a keyframe with a new codec config.
+    func switchCodec(to codec: VideoCodec) {
+        lock.lock(); wantedCodec = codec; forceKey = true; lock.unlock()
+    }
+
+    var codec: VideoCodec {
+        lock.lock(); defer { lock.unlock() }
+        return wantedCodec
     }
 
     var keyframePending: Bool {
@@ -86,7 +123,9 @@ final class VideoEncoder {
         lock.lock()
         let key = forceKey
         forceKey = false
+        let wanted = wantedCodec
         lock.unlock()
+        if wanted != sessionCodec { replaceSession(with: wanted) }
         let options = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         let finish = Once(completion)
 
@@ -104,6 +143,21 @@ final class VideoEncoder {
         if status != noErr {
             if key { requestKeyframe() }
             finish.run()
+        }
+    }
+
+    private func replaceSession(with codec: VideoCodec) {
+        do {
+            let new = try Self.makeSession(codec: codec, width: width, height: height, fps: fps, bitrateMbps: bitrateMbps)
+            // Emits the old session's last frames (and runs their completions) before the switch.
+            VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
+            VTCompressionSessionInvalidate(session)
+            session = new
+            sessionCodec = codec
+            print("Encoder: now \(codec.name).")
+        } catch {
+            print("\(error.localizedDescription) Staying with \(sessionCodec.name).")
+            lock.lock(); wantedCodec = sessionCodec; lock.unlock()
         }
     }
 
@@ -126,12 +180,31 @@ final class VideoEncoder {
     private func codecConfig(_ format: CMFormatDescription) -> CodecConfig? {
         let atoms = CMFormatDescriptionGetExtension(
             format, extensionKey: kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms) as? [String: Any]
+        let dims = format.dimensions
+        if let hvcC = atoms?["hvcC"] as? Data, hvcC.count >= 23 {
+            return CodecConfig(codec: Self.hevcCodecString(hvcC), description: hvcC,
+                               width: Int(dims.width), height: Int(dims.height))
+        }
         guard let original = atoms?["avcC"] as? Data, original.count >= 4 else { return nil }
         let avcC = H264NoReorder.patch(avcC: original) ?? original
         // avcC bytes 1–3 are profile_idc, constraint flags and level_idc.
         let codec = "avc1." + avcC[1...3].map { String(format: "%02X", $0) }.joined()
-        let dims = format.dimensions
-        return CodecConfig(codec: codec, avcC: avcC, width: Int(dims.width), height: Int(dims.height))
+        return CodecConfig(codec: codec, description: avcC, width: Int(dims.width), height: Int(dims.height))
+    }
+
+    /// ISO 14496-15 Annex E codec string from the hvcC header, e.g. "hvc1.1.6.L153.B0" (Main, level 5.1).
+    /// "hvc1" because VideoToolbox keeps VPS/SPS/PPS out of band, in the hvcC only.
+    static func hevcCodecString(_ hvcC: Data) -> String {
+        let b = [UInt8](hvcC.prefix(13))
+        let space = ["", "A", "B", "C"][Int(b[1] >> 6)]
+        let tier = b[1] & 0x20 != 0 ? "H" : "L"
+        let compatibility = b[2...5].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+        var reversed: UInt32 = 0   // the string writes the 32 compatibility flags in reverse bit order
+        for bit in 0..<32 where compatibility >> bit & 1 == 1 { reversed |= 1 << (31 - bit) }
+        var constraints = Array(b[6...11])
+        while constraints.last == 0 { constraints.removeLast() }
+        return (["hvc1", "\(space)\(b[1] & 0x1F)", String(reversed, radix: 16, uppercase: true), "\(tier)\(b[12])"]
+                + constraints.map { String(format: "%02X", $0) }).joined(separator: ".")
     }
 }
 
