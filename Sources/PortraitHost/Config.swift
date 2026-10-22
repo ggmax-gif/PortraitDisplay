@@ -11,6 +11,7 @@ struct Config {
     var bitrateMbps = 20.0     // H.264 cap; still screens use far less
     var httpPort: UInt16 = 8080
     var name = "Portrait iPad"
+    var statusLines = false    // set by the menu bar app
 
     var pagePort: UInt16 { httpPort &+ 1 }   // HTTPS viewer page
     var wsPort: UInt16 { httpPort &+ 2 }     // secure WebSocket
@@ -37,6 +38,7 @@ struct Config {
       --port <n>           Setup page port; also uses port+1, +2    (default 8080)
       --no-hidpi           Non-Retina virtual display (bigger UI, blurrier text)
       --no-input           View only: ignore touch and Pencil from the iPad
+      --status-lines       Also print "@key value" lines (used by the menu bar app)
       --help               Show this help
     """
 
@@ -58,6 +60,7 @@ struct Config {
             case "--port":    c.httpPort = UInt16(intArg(value(), 1024...65000))
             case "--no-hidpi": c.hiDPI = false
             case "--no-input": c.input = false
+            case "--status-lines": c.statusLines = true
             case "--help", "-h": print(usage); exit(0)
             default: fail("Unknown option \(args[i])\n\n\(usage)")
             }
@@ -78,8 +81,19 @@ struct Config {
 }
 
 func fail(_ message: String) -> Never {
+    Status.emit("error", message)
     FileHandle.standardError.write(("Error: " + message + "\n").data(using: .utf8)!)
     exit(1)
+}
+
+/// With --status-lines, "@key value" lines next to the normal output, for the menu bar app to read.
+/// Keys: url, running, viewers, stats, needs-accessibility, error.
+enum Status {
+    static var enabled = false
+
+    static func emit(_ key: String, _ value: String = "") {
+        if enabled { print("@\(key) \(value)") }
+    }
 }
 
 /// A random access key, saved so the iPad Home Screen bookmark keeps working between runs.

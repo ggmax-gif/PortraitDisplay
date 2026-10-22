@@ -127,6 +127,7 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         print("Screen capture stopped: \(error.localizedDescription)")
+        Status.emit("error", "Screen capture stopped: \(error.localizedDescription)")
         exit(1)
     }
 

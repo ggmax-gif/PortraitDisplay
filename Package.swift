@@ -27,5 +27,15 @@ let package = Package(
                 .linkedFramework("Network"),
             ]
         ),
+        // Menu bar app: starts and stops PortraitHost. Bundle it with scripts/make-app.sh.
+        .executableTarget(
+            name: "PortraitMenu",
+            path: "Sources/PortraitMenu",
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("ServiceManagement"),
+                .linkedFramework("CoreImage"),
+            ]
+        ),
     ]
 )

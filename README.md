@@ -19,6 +19,31 @@ the screen. Allow it, then **quit Terminal completely (⌘Q)**, reopen it and ru
 
 Terminal prints an address like `http://192.168.1.23:8080/?t=…`.
 
+## Or: menu bar app
+
+```bash
+scripts/make-app.sh
+open ~/Applications/"Portrait Display.app"
+```
+
+This builds **Portrait Display.app** into `~/Applications` and puts an iPad icon in the menu bar,
+with Start / Stop, the iPad link (copy it or show it as a QR code to scan), whether the iPad is
+connected, the latest stats, and Launch at Login. The icon is dimmed while it's off.
+
+The app needs its own permissions (not Terminal's): Screen & System Audio Recording, and
+Accessibility for touch input. If Start fails, the alert has a button to the right settings page.
+The script signs the app with a local certificate kept in `~/.portraitdisplay/signing`, so
+those permissions survive rebuilds. Don't delete that folder, or macOS asks again.
+
+Options go in the app's settings instead of on the command line, for example:
+
+```bash
+defaults write com.danielfung.PortraitDisplay hostArguments -array --width 820 --height 1180
+defaults write com.danielfung.PortraitDisplay startOnLaunch -bool YES   # start right away (e.g. at login)
+```
+
+Output from each run is in `~/Library/Logs/PortraitDisplay.log` (Show Log in the menu).
+
 ## On the iPad
 
 1. Connect the iPad to the **same Wi-Fi** as the Mac. Turn Sidecar off. iPadOS 16.4 or later.

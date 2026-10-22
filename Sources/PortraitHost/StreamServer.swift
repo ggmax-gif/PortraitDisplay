@@ -73,6 +73,7 @@ final class StreamServer {
             guard let line = viewer.takeStats(seconds: Self.statsInterval) else { continue }
             let text = "\(mac) · \(line)"
             print("Stats (\(endpointName(viewer.connection))): \(text)")
+            Status.emit("stats", text)
             if let json = try? JSONSerialization.data(withJSONObject: ["stats": text]) {
                 viewer.sendText(json)
             }
@@ -132,6 +133,7 @@ final class StreamServer {
 
     fileprivate func viewerAuthenticated(_ viewer: Viewer) {
         print("iPad connected (\(endpointName(viewer.connection))). Viewers: \(authenticatedCount)")
+        Status.emit("viewers", String(authenticatedCount))
     }
 
     fileprivate func viewerClosed(_ viewer: Viewer) {
@@ -140,6 +142,7 @@ final class StreamServer {
         updateSlots()
         if wasAuthenticated {
             print("iPad disconnected. Viewers: \(authenticatedCount)")
+            Status.emit("viewers", String(authenticatedCount))
             onViewerGone?()
         }
     }
