@@ -86,4 +86,5 @@ Needs Screen & System Audio Recording permission, and Accessibility for touch in
 terminal app runs it. macOS 15+.
 
 ## Ideas not done yet
-- USB connection instead of Wi-Fi.
+- USB connection through a native iPad app over usbmuxd: design in `docs/usb-design.md`, feasibility
+  test in `Spike/usb/` (written, not yet run on a device).

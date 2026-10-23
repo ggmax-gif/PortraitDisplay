@@ -1,0 +1,25 @@
+# XcodeGen spec for the USB spike's iPad app. Generate with `xcodegen` in this folder (the
+# .xcodeproj is not committed). Spike/usb/README.md has the build and install commands.
+name: EchoApp
+options:
+  bundleIdPrefix: com.danielfung
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  EchoApp:
+    type: application
+    platform: iOS
+    sources: [EchoApp.swift]
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: USB Echo
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danielfung.PortraitDisplay.EchoSpike
+        TARGETED_DEVICE_FAMILY: "2"
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.0"
