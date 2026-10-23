@@ -3,11 +3,9 @@ import CoreGraphics
 
 /// Owns the virtual display and its screen capture. Normally they exist the whole run; with
 /// --on-demand only while an iPad is connected: created when the first one connects, removed
-/// `linger` seconds after the last one leaves (so a Wi-Fi blip or a short screen lock doesn't send
+/// `--linger` seconds after the last one leaves (so a Wi-Fi blip or a short screen lock doesn't send
 /// every window back to the MacBook). Main queue only.
 final class DisplayController {
-    static let linger: TimeInterval = 15
-
     var onDisplay: ((CGDirectDisplayID?) -> Void)?   // the new display, or nil once it's gone
 
     private enum State { case off, on(VirtualDisplay), stopping }
@@ -38,7 +36,7 @@ final class DisplayController {
                 self?.hide()
             }
             removal = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.linger, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(config.lingerSeconds), execute: work)
         }
     }
 
@@ -69,7 +67,7 @@ final class DisplayController {
         onDisplay?(nil)
         capturer.stop {
             self.state = .off   // releases the VirtualDisplay, which removes it
-            print("Virtual display removed (no iPad for \(Int(Self.linger)) s).")
+            print("Virtual display removed (no iPad for \(self.config.lingerSeconds) s).")
             Status.emit("display", "off")
             self.update()       // an iPad may have connected while capture was stopping
         }

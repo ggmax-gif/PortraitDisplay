@@ -50,7 +50,7 @@ Not for the App Store, because it uses a private API.
   finger drag = scroll with JS-side momentum, two-finger tap = right-click, three-finger tap = overlay.
 - `Config.swift`: CLI options, token saved in `~/.portraitdisplay-token`, local IP listing.
 - `DisplayController.swift`: owns the virtual display and capture. With `--on-demand` it creates them
-  when the first iPad connects and removes them `linger` (15 s) after the last one leaves; capture
+  when the first iPad connects and removes them `--linger` seconds (15; the app passes 120) after the last one leaves; capture
   is stopped before the display goes. Each new display gets a new ID (the injector follows it);
   macOS restores its Retina mode and position by vendor/product/serial.
 - `main.swift`: SIGINT (Ctrl+C, or the app's Stop) is a dispatch source installed right after parsing, so a

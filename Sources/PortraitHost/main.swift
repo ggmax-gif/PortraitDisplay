@@ -104,7 +104,7 @@ print("""
  Move windows onto "\(config.name)" like any other monitor
  (arrange it in System Settings → Displays → Arrange…).
 \(config.onDemand
-    ? " The display appears when the iPad connects and goes away \(Int(DisplayController.linger)) s after it leaves."
+    ? " The display appears when the iPad connects and goes away \(config.lingerSeconds) s after it leaves."
     : " Press Ctrl+C here to stop – the virtual display goes away.")
 ────────────────────────────────────────────────────────
 

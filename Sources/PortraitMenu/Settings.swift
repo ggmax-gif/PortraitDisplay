@@ -6,21 +6,23 @@ enum Settings {
     enum Key {
         static let width = "width", height = "height", hiDPI = "hiDPI", fps = "fps", scale = "scale"
         static let bitrate = "bitrate", codec = "codec", port = "port", input = "input"
-        static let onDemand = "onDemand", startOnLaunch = "startOnLaunch"
+        static let onDemand = "onDemand", linger = "linger", startOnLaunch = "startOnLaunch"
         /// Advanced: extra host options, e.g. `defaults write com.danielfung.PortraitDisplay hostArguments -array --fps 90`.
         static let extraArguments = "hostArguments"
     }
 
     static let sizeRange = 200...4000
     static let fpsChoices = [30, 60, 120]
+    static let lingerChoices = [15, 60, 120, 300, 900]   // seconds; the host accepts 0–3600
     static let bitrateRange = 2.0...40.0
     static let portRange = 1024...65000
 
-    /// Same as the host's own defaults, except on-demand, which the menu bar app turns on.
+    /// Same as the host's own defaults, except on-demand, which the menu bar app turns on, and a
+    /// longer grace period: a locked iPad or a quick app switch shouldn't move windows while reading.
     static let defaults: [String: Any] = [
         Key.width: 1024, Key.height: 1334, Key.hiDPI: true, Key.fps: 60, Key.scale: 2.0,
         Key.bitrate: 20.0, Key.codec: "h264", Key.port: 8080, Key.input: true,
-        Key.onDemand: true, Key.startOnLaunch: false,
+        Key.onDemand: true, Key.linger: 120, Key.startOnLaunch: false,
     ]
 
     static func register() {
@@ -55,7 +57,7 @@ enum Settings {
         ]
         if !d.bool(forKey: Key.hiDPI) { args.append("--no-hidpi") }
         if !d.bool(forKey: Key.input) { args.append("--no-input") }
-        if d.bool(forKey: Key.onDemand) { args.append("--on-demand") }
+        if d.bool(forKey: Key.onDemand) { args += ["--on-demand", "--linger", String(int(Key.linger, 0...3600))] }
         return args + (d.stringArray(forKey: Key.extraArguments) ?? [])
     }
 }

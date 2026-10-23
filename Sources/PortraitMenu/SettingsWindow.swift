@@ -45,6 +45,7 @@ struct SettingsView: View {
     @AppStorage(Settings.Key.bitrate) private var bitrate = 20.0
     @AppStorage(Settings.Key.scale) private var scale = 2.0
     @AppStorage(Settings.Key.onDemand) private var onDemand = true
+    @AppStorage(Settings.Key.linger) private var linger = 120
     @AppStorage(Settings.Key.input) private var input = true
     @AppStorage(Settings.Key.startOnLaunch) private var startOnLaunch = false
     @AppStorage(Settings.Key.port) private var port = 8080
@@ -89,6 +90,12 @@ struct SettingsView: View {
                 }
                 Section("Behaviour") {
                     Toggle("Show the display only while an iPad is connected", isOn: $onDemand)
+                    Picker("Keep it after the iPad leaves for", selection: $linger) {
+                        ForEach(Settings.lingerChoices, id: \.self) { seconds in
+                            Text(seconds < 60 ? "\(seconds) seconds" : "\(seconds / 60) min").tag(seconds)
+                        }
+                    }
+                    .disabled(!onDemand)
                     Toggle("Touch and Pencil control the Mac", isOn: $input)
                     Toggle("Start when the app opens", isOn: $startOnLaunch)
                     Toggle("Launch at login", isOn: Binding(get: { login.enabled }, set: login.set))

@@ -32,8 +32,9 @@ connected, and the latest stats while frames are flowing (they update while the 
 icon is dimmed while it's off.
 
 Like Sidecar, the "Portrait iPad" display only exists while the iPad is connected: Start just gets
-the Mac ready, the display appears when you open the page on the iPad, and it goes away 15 s after
-the iPad leaves (closing the page, locking it for longer). Windows on it move back to the MacBook.
+the Mac ready, the display appears when you open the page on the iPad, and it goes away 2 minutes
+after the iPad leaves (closing the page, locking it). Windows on it move back to the MacBook.
+**Keep it after the iPad leaves for** in Settings changes the 2 minutes (15 s to 15 min).
 Turn off **Show the display only while an iPad is connected** in Settings to keep it from Start to Stop.
 
 The app needs its own permissions (not Terminal's): Screen & System Audio Recording, and
@@ -108,7 +109,8 @@ Other options (`--help` lists them all):
 | `--port 9090` | 8080 | Uses this port and the next two (8080–8082). Change if they're taken |
 | `--no-hidpi` | off | Bigger UI, less sharp |
 | `--no-input` | off | Ignore touch and Pencil (view only) |
-| `--on-demand` | off | Display only while an iPad is connected, removed 15 s after it leaves (the menu bar app's default) |
+| `--on-demand` | off | Display only while an iPad is connected (the menu bar app's default) |
+| `--linger 120` | 15 | With `--on-demand`: seconds the display stays after the iPad leaves (the app uses 120) |
 
 ## Notes
 
