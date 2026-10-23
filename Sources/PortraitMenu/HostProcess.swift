@@ -11,6 +11,8 @@ final class HostProcess {
     private(set) var displayOn = false
     private(set) var stats: String?
     private(set) var needsAccessibility = false
+    /// The options this run was started with (from `Settings`), nil while stopped.
+    private(set) var runningArguments: [String]?
     private var lastError: String?
 
     var onChange: (() -> Void)?
@@ -22,6 +24,8 @@ final class HostProcess {
 
     private var process: Process?
     private var restartPending = false
+    private var interrupted = false   // we sent SIGINT, so dying of it is a normal stop
+    private var quitting = false
     private var pending = Data()
     private var log: FileHandle?
 
@@ -31,28 +35,22 @@ final class HostProcess {
         return Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("PortraitHost")
     }
 
-    /// Extra host options, e.g. `defaults write com.danielfung.PortraitDisplay hostArguments -array --width 820 --height 1180`
-    private var extraArguments: [String] {
-        UserDefaults.standard.stringArray(forKey: "hostArguments") ?? []
-    }
-
-    /// Virtual display only while an iPad is connected, like Sidecar. On unless turned off in the menu.
-    static var onDemand: Bool {
-        get { UserDefaults.standard.object(forKey: "onDemand") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "onDemand") }
-    }
+    /// Whether this run removes the display when no iPad is connected.
+    var onDemand: Bool { runningArguments?.contains("--on-demand") ?? false }
 
     func start() {
         guard process == nil else { return }
         urls = []; viewers = 0; displayOn = false; stats = nil; needsAccessibility = false; lastError = nil
+        interrupted = false
         pending = Data()
 
         FileManager.default.createFile(atPath: Self.logURL.path, contents: nil)   // new log per run
         log = try? FileHandle(forWritingTo: Self.logURL)
 
+        let arguments = Settings.hostArguments
         let p = Process()
         p.executableURL = hostURL
-        p.arguments = extraArguments + (Self.onDemand ? ["--on-demand"] : []) + ["--status-lines"]
+        p.arguments = ["--status-lines"] + arguments   // first, so even a bad option gets an "@error" line
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
@@ -72,13 +70,16 @@ final class HostProcess {
             return
         }
         process = p
+        runningArguments = arguments
         state = .starting
         onChange?()
     }
 
     /// SIGINT: the host's Ctrl+C handler exits cleanly and the virtual display goes away.
     func stop() {
-        process?.interrupt()
+        guard let p = process else { return }
+        interrupted = true
+        p.interrupt()
     }
 
     /// Stop, then start again with the current settings.
@@ -91,6 +92,8 @@ final class HostProcess {
     /// For app quit: stop and wait, so the display is gone before the app is.
     func stopAndWait() {
         guard let p = process else { return }
+        quitting = true
+        interrupted = true
         p.interrupt()
         p.waitUntilExit()
     }
@@ -113,7 +116,9 @@ final class HostProcess {
         switch key {
         case "url": urls.append(value)
         case "running": state = .running
-        case "viewers": viewers = Int(value) ?? 0
+        case "viewers":
+            viewers = Int(value) ?? 0
+            if viewers == 0 { stats = nil }   // the host only sends stats while frames flow to an iPad
         case "display": displayOn = value == "on"
         case "stats": stats = value
         case "needs-accessibility": needsAccessibility = true
@@ -126,6 +131,7 @@ final class HostProcess {
     private func exited(_ p: Process) {
         guard p === process else { return }
         process = nil
+        runningArguments = nil
         state = .stopped
         viewers = 0
         displayOn = false
@@ -133,7 +139,10 @@ final class HostProcess {
         try? log?.close()
         log = nil
         onChange?()
-        if p.terminationReason == .uncaughtSignal || p.terminationStatus != 0 {
+        if quitting { return }   // no alert or restart while the app quits
+        // SIGINT can arrive before the host has set up its handler; that is still the stop we asked for.
+        let stoppedByUs = interrupted && p.terminationReason == .uncaughtSignal && p.terminationStatus == SIGINT
+        if !stoppedByUs && (p.terminationReason == .uncaughtSignal || p.terminationStatus != 0) {
             restartPending = false
             onFailure?(lastError ?? "PortraitHost stopped unexpectedly (status \(p.terminationStatus)).")
         } else if restartPending {

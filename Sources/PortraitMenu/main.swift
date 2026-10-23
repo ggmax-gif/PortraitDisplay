@@ -1,39 +1,120 @@
 import AppKit
 import CoreImage.CIFilterBuiltins
-import ServiceManagement
 
 /// Menu bar front end: starts and stops PortraitHost, shows the iPad link and the latest stats.
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let host = HostProcess()
+    private let hostStatus = HostStatus()
+    private lazy var settingsWindow = SettingsWindowController(status: hostStatus)
     private var statusItem: NSStatusItem!
     private var qrWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Settings.register()
+        installMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "ipad", accessibilityDescription: "Portrait Display")
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
-        host.onChange = { [weak self] in self?.updateIcon() }
+        hostStatus.restart = { [weak self] in self?.host.restart() }
+        host.onChange = { [weak self] in self?.hostChanged() }
         host.onFailure = { [weak self] message in self?.showFailure(message) }
         updateIcon()
-        // `defaults write com.danielfung.PortraitDisplay startOnLaunch -bool YES`, e.g. with Launch at Login.
-        if UserDefaults.standard.bool(forKey: "startOnLaunch") { host.start() }
+        if Settings.startOnLaunch { host.start() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         host.stopAndWait()
     }
 
+    /// Never shown (the app has no menu bar of its own), but its key equivalents are what make
+    /// Cmd-C / Cmd-V / Cmd-A / Cmd-Z work in the Settings fields, and Cmd-W close the window.
+    private func installMainMenu() {
+        func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.submenu = NSMenu(title: title)
+            items.forEach { item.submenu?.addItem($0) }
+            return item
+        }
+        func entry(_ title: String, _ action: Selector, _ key: String, shift: Bool = false) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            if shift { item.keyEquivalentModifierMask = [.command, .shift] }
+            return item
+        }
+        let main = NSMenu()
+        main.addItem(submenu("Portrait Display", [
+            entry("Quit Portrait Display", #selector(NSApplication.terminate(_:)), "q"),
+        ]))
+        main.addItem(submenu("Edit", [
+            entry("Undo", Selector(("undo:")), "z"),
+            entry("Redo", Selector(("redo:")), "z", shift: true),
+            .separator(),
+            entry("Cut", #selector(NSText.cut(_:)), "x"),
+            entry("Copy", #selector(NSText.copy(_:)), "c"),
+            entry("Paste", #selector(NSText.paste(_:)), "v"),
+            entry("Select All", #selector(NSText.selectAll(_:)), "a"),
+        ]))
+        main.addItem(submenu("Window", [
+            entry("Close", #selector(NSWindow.performClose(_:)), "w"),
+        ]))
+        NSApp.mainMenu = main
+    }
+
+    private func hostChanged() {
+        updateIcon()
+        if hostStatus.runningArguments != host.runningArguments { hostStatus.runningArguments = host.runningArguments }
+        if menuIsOpen, let menu = statusItem.menu { refresh(menu) }
+    }
+
     private func updateIcon() {
         statusItem.button?.appearsDisabled = host.state == .stopped
     }
 
-    // MARK: Menu (rebuilt each time it opens)
+    // MARK: Menu
+    //
+    // Built when it opens. While it stays open, host changes update the status and stats lines in
+    // place; only a change in which items exist rebuilds it (rebuilding every 2 s for the stats would
+    // drop the highlight on the item under the pointer).
+
+    private var menuIsOpen = false
+    private var builtShape: MenuShape?
+    private weak var statusLine: NSMenuItem?
+    private weak var statsLine: NSMenuItem?
+
+    /// Which items the menu has; the texts can change without it.
+    private struct MenuShape: Equatable {
+        var stopped: Bool
+        var urls: [String]
+        var needsAccessibility: Bool
+        var hasStats: Bool
+    }
+
+    private var shape: MenuShape {
+        MenuShape(stopped: host.state == .stopped, urls: host.urls,
+                  needsAccessibility: host.needsAccessibility, hasStats: host.stats != nil)
+    }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        build(menu)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) { menuIsOpen = true }
+
+    func menuDidClose(_ menu: NSMenu) { menuIsOpen = false }
+
+    private func refresh(_ menu: NSMenu) {
+        guard shape == builtShape else { build(menu); return }
+        statusLine?.title = statusText
+        if let stats = host.stats { statsLine?.attributedTitle = small(stats) }
+    }
+
+    private func build(_ menu: NSMenu) {
         menu.removeAllItems()
-        menu.addItem(label(statusText))
+        builtShape = shape
+        let status = label(statusText)
+        statusLine = status
+        menu.addItem(status)
         if host.state == .stopped {
             menu.addItem(item("Start", #selector(start)))
         } else {
@@ -54,18 +135,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             if let stats = host.stats {
                 menu.addItem(.separator())
-                menu.addItem(label(stats, small: true))
+                let line = label(stats)
+                line.attributedTitle = small(stats)
+                statsLine = line
+                menu.addItem(line)
             }
         }
 
         menu.addItem(.separator())
-        let onDemand = item("Show Display Only While iPad Is Connected", #selector(toggleOnDemand))
-        onDemand.state = HostProcess.onDemand ? .on : .off
-        menu.addItem(onDemand)
+        menu.addItem(item("Settings…", #selector(showSettings), key: ","))
         menu.addItem(item("Show Log", #selector(showLog)))
-        let login = item("Launch at Login", #selector(toggleLaunchAtLogin))
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(login)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Portrait Display", action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: "q"))
@@ -78,7 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .running:
             switch host.viewers {
             case 0 where !host.displayOn: return "Ready – open the link on the iPad"
-            case 0 where HostProcess.onDemand: return "On – iPad gone, display closes soon"
+            case 0 where host.onDemand: return "On – iPad gone, display closes soon"
             case 0: return "On – waiting for the iPad"
             case 1: return "On – iPad connected"
             default: return "On – \(host.viewers) iPads connected"
@@ -86,22 +165,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func item(_ title: String, _ action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+    private func item(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
         return item
     }
 
-    private func label(_ text: String, small: Bool = false) -> NSMenuItem {
+    private func label(_ text: String) -> NSMenuItem {
         let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
-        if small {
-            item.attributedTitle = NSAttributedString(string: text, attributes: [
-                .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ])
-        }
         item.isEnabled = false
         return item
+    }
+
+    private func small(_ text: String) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ])
     }
 
     // MARK: Actions
@@ -153,25 +233,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openSettings("Privacy_Accessibility")
     }
 
-    @objc private func toggleOnDemand() {
-        HostProcess.onDemand.toggle()
-        host.restart()
+    @objc private func showSettings() {
+        settingsWindow.show()
     }
 
     @objc private func showLog() {
         NSWorkspace.shared.open(HostProcess.logURL)
-    }
-
-    @objc private func toggleLaunchAtLogin() {
-        do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
-                try SMAppService.mainApp.register()
-            }
-        } catch {
-            alert("Couldn't change Launch at Login", error.localizedDescription)
-        }
     }
 
     private func showFailure(_ message: String) {

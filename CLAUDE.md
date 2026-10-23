@@ -53,15 +53,24 @@ Not for the App Store, because it uses a private API.
   when the first iPad connects and removes them `linger` (15 s) after the last one leaves; capture
   is stopped before the display goes. Each new display gets a new ID (the injector follows it);
   macOS restores its Retina mode and position by vendor/product/serial.
-- `main.swift`: wires it together, then runs `NSApplication` (policy `.prohibited`), not `dispatchMain()`:
+- `main.swift`: SIGINT (Ctrl+C, or the app's Stop) is a dispatch source installed right after parsing, so a
+  Stop during setup still exits cleanly. `Config.parse` rejects streams above H.264's 139,264 macroblocks:
+  the encoder accepts the session but fails every frame. Wires it together, then runs `NSApplication`
+  (policy `.prohibited`), not `dispatchMain()`:
   without an AppKit run loop the process never sees display changes, and a re-created display has no
   modes. With `--status-lines` it also prints `@key value` lines (`Status` in `Config.swift`) and exits
   when its parent process does.
 - `Sources/PortraitMenu/`: the menu bar app. It runs PortraitHost (`Contents/Helpers`) as a child
   process with `--status-lines` and stops it with SIGINT, so a crash can never leave the display behind.
-  Host options come from the `hostArguments` default; it adds `--on-demand` unless the `onDemand`
-  default (menu toggle) is off. Log: `~/Library/Logs/PortraitDisplay.log`. The host lives in
-  `Contents/Helpers`: from `Contents/MacOS` it registered as a second app with the same bundle ID.
+  `Settings.swift` maps the saved settings (same ranges as `Config.parse`) to host options, then appends
+  the advanced `hostArguments` default. `SettingsWindow.swift` is a SwiftUI form that saves on edit and
+  offers Restart Now when they differ from the running host's `runningArguments`. No `@State`: the
+  Command Line Tools' Swift lacks SwiftUI's macro plugin. Number fields are an `NSTextField` that commits on
+  end of editing: SwiftUI's TextField writes on every keystroke here, so clamping it mangled typed values.
+  A main menu is installed (never shown) only so Cmd-C/V/A/W work in that window. The menu updates its status and stats lines in
+  place while open and rebuilds only when its items change. Log: `~/Library/Logs/PortraitDisplay.log`.
+  The host lives in `Contents/Helpers`: from `Contents/MacOS` it registered as a second app with the same
+  bundle ID.
 - `scripts/make-app.sh`: builds `Portrait Display.app` into `~/Applications`, signed with a self-signed
   certificate in its own keychain in `~/.portraitdisplay/signing`. TCC keys permissions on that certificate
   (designated requirement = identifier + leaf hash), so they survive rebuilds; ad-hoc signing would not.

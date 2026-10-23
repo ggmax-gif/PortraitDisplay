@@ -248,7 +248,8 @@ final class StreamServer {
     private static func stateHandler(port: UInt16) -> (NWListener.State) -> Void {
         return { state in
             if case let .failed(error) = state {
-                fail("Couldn't listen on port \(port) (\(error)). Is another copy running? Try --port 9090")
+                let other = Status.enabled ? "pick another Port in Settings" : "try --port 9090"
+                fail("Couldn't listen on port \(port) (\(error)). Is another copy running? Otherwise \(other).")
             }
         }
     }

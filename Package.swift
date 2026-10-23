@@ -35,6 +35,7 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("CoreImage"),
+                .linkedFramework("SwiftUI"),
             ]
         ),
     ]

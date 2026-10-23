@@ -76,6 +76,13 @@ struct Config {
             }
             i += 1
         }
+        // Above level 6.2's 139,264 macroblocks (~35.6 Mpx) hardware H.264 creates the session but fails
+        // every frame, so the iPad would just stay black. H.264 is also the fallback with --codec hevc.
+        let macroblocks = ((c.streamWidth + 15) / 16) * ((c.streamHeight + 15) / 16)
+        if macroblocks > 139_264 {
+            fail("A \(c.streamWidth)×\(c.streamHeight) px stream is more than H.264 can encode (about 35.6 million "
+                 + "pixels). Use a smaller size or a lower stream resolution (--scale).")
+        }
         return c
     }
 

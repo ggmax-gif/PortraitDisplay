@@ -2,8 +2,20 @@ import AppKit
 
 setvbuf(stdout, nil, _IOLBF, 0)
 
+// Before parsing, so the menu bar app also gets "@error" lines for bad options.
+Status.enabled = CommandLine.arguments.contains("--status-lines")
 let config = Config.parse(Array(CommandLine.arguments.dropFirst()))
-Status.enabled = config.statusLines
+
+// Ctrl+C, or the menu bar app's Stop / Restart / Quit (SIGINT): exit cleanly, so the virtual display goes
+// away. Installed before the slow setup, which a Stop can land in, and as a dispatch source rather than a
+// signal handler, where print and exit aren't safe.
+signal(SIGINT, SIG_IGN)
+let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+interrupt.setEventHandler {
+    print("\nStopped.")
+    exit(0)
+}
+interrupt.resume()
 
 // Under the menu bar app: quit with it, even if it crashes, so the virtual display never outlives it.
 // Armed before the slow setup; the second getppid() catches a parent that died while arming.
@@ -98,11 +110,6 @@ print("""
 
 """)
 Status.emit("running")
-
-signal(SIGINT) { _ in
-    print("\nStopped.")
-    exit(0)
-}
 
 // An AppKit run loop rather than dispatchMain(): without it this process never hears about display
 // changes, and a re-created virtual display (--on-demand) has no modes to choose from.
