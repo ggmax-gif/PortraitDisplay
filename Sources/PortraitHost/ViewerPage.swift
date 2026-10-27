@@ -19,7 +19,8 @@ enum ViewerPage {
           "display": "fullscreen",
           "orientation": "any",
           "background_color": "#000000",
-          "theme_color": "#000000"
+          "theme_color": "#000000",
+          "icons": [{ "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }]
         }
         """
     }
@@ -43,6 +44,7 @@ enum ViewerPage {
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Portrait">
     <link rel="manifest" href="/manifest.webmanifest?t=__TOKEN__">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <title>__NAME__</title>
     <style>
       html, body { margin: 0; height: 100%; background: #000; overflow: hidden;

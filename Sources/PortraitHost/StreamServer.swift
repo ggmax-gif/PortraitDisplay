@@ -233,6 +233,10 @@ final class StreamServer {
             case (true, "/manifest.webmanifest", true):
                 contentType = "application/manifest+json"
                 body = Data(ViewerPage.manifest(token: self.token, name: self.config.name).utf8)
+            case (true, "/apple-touch-icon.png", _):
+                // The Home Screen icon: not secret, and iPadOS fetches it without the page's token.
+                contentType = "image/png"
+                body = AppIconPNG.data
             case (true, "/ping", _):
                 // The setup page fetches this to find out whether the iPad trusts the certificate yet.
                 status = "204 No Content"; contentType = "text/plain"
