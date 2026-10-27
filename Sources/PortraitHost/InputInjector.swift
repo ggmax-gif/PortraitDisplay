@@ -13,6 +13,13 @@ import CoreGraphics
 ///   p h x y                 Pencil/mouse hover
 ///   s b x y dx dy | s c dx dy | s e       scroll (finger drag), deltas as fractions of the stream
 ///   s mb dx dy | s mc dx dy | s me        momentum after the fingers lift
+///   g z b x y | g z c amount | g z e      pinch (zoom): amount is the change in scale, +0.1 = 10% bigger
+///   g r b x y | g r c degrees | g r e     two-finger rotate, counterclockwise positive
+///   w up | w down | w left | w right      three-finger swipe (the way the fingers moved)
+///
+/// Pinch and rotate are posted as gesture events through private CGEvent fields (also used by e.g.
+/// Mac Mouse Fix), since there is no public way to synthesize them; checked on macOS 27.2 that an
+/// NSView receives magnify / rotate with the right phases. Swipes use the Mission Control shortcuts.
 final class InputInjector {
     private let queue = DispatchQueue(label: "portrait.input")
     private let source = CGEventSource(stateID: .hidSystemState)
@@ -107,6 +114,21 @@ final class InputInjector {
             case "me": scroll(0, 0, momentum: .end)
             default: break
             }
+        case "g":
+            guard f.count >= 3, let kind = f[1] == "z" ? Gesture.zoom : f[1] == "r" ? Gesture.rotate : nil else { return }
+            switch f[2] {
+            case "b":
+                // Gestures go to the window under the cursor, so put it under the fingers first.
+                post(.mouseMoved, at: point(n(3), n(4)), button: .left)
+                gesture(kind, phase: 1, value: 0)
+            case "c": gesture(kind, phase: 2, value: n(3))
+            case "e": gesture(kind, phase: 4, value: 0)
+            default: break
+            }
+        case "w":
+            // Control-arrow: the default Mission Control shortcuts. Fingers moving left show the Space on the right.
+            let keys: [String: CGKeyCode] = ["up": 126, "down": 125, "left": 124, "right": 123]
+            if let key = keys[f[1]] { shortcut(key, flags: .maskControl) }
         default:
             break
         }
@@ -126,7 +148,7 @@ final class InputInjector {
         var count: Int64 = 1
         if let last = lastClick, last.button == button,
            now - last.time < NSEvent.doubleClickInterval,
-           hypot(point.x - last.point.x, point.y - last.point.y) < 8 {
+           hypot(point.x - last.point.x, point.y - last.point.y) < 24 {   // a fingertip lands less precisely than a cursor
             count = last.count + 1
         }
         lastClick = (now, point, button, count)
@@ -154,6 +176,28 @@ final class InputInjector {
             event.setDoubleValueField(.tabletEventTiltY, value: pen.tiltY)
         }
         event.post(tap: .cghidEventTap)
+    }
+
+    private enum Gesture { case zoom, rotate }
+
+    /// A pinch or rotate step as a gesture event: event type 29 (gesture), field 110 = the HID event
+    /// type (8 zoom, 5 rotation), 132 = phase (1 began, 2 changed, 4 ended), 113 / 114 = the value.
+    private func gesture(_ kind: Gesture, phase: Int64, value: Double) {
+        guard let event = CGEvent(source: source) else { return }
+        event.location = CGEvent(source: nil)?.location ?? .zero
+        event.setIntegerValueField(CGEventField(rawValue: 55)!, value: 29)
+        event.setIntegerValueField(CGEventField(rawValue: 110)!, value: kind == .zoom ? 8 : 5)
+        event.setIntegerValueField(CGEventField(rawValue: 132)!, value: phase)
+        event.setDoubleValueField(CGEventField(rawValue: kind == .zoom ? 113 : 114)!, value: value)
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func shortcut(_ key: CGKeyCode, flags: CGEventFlags) {
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: down) else { continue }
+            event.flags = flags.union([.maskSecondaryFn, .maskNumericPad])   // arrow keys carry these
+            event.post(tap: .cghidEventTap)
+        }
     }
 
     private func scroll(_ dx: Double, _ dy: Double, phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase? = nil) {

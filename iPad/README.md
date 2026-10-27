@@ -5,7 +5,8 @@ app through usbmuxd (the channel Xcode and Finder use) and connects to it on loo
 frames are decoded in hardware and shown with `AVSampleBufferDisplayLayer`. No Safari, certificate
 or network is involved. Design and measurements: `docs/native-viewer-design.md`.
 
-Status: video works. Touch and Pencil input are next.
+Status: video, touch, Pencil and trackpad-style gestures (double tap, pinch, rotate, three-finger
+swipes) work. The main README lists the gestures.
 
 ## Build and install
 

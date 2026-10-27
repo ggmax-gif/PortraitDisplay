@@ -1,7 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// Portrait Display's native viewer: shows the Mac's "Portrait iPad" display over the USB cable.
+/// Portrait Display's native viewer: shows the Mac's "Portrait iPad" display over the USB cable, and
+/// sends touch and Pencil input back.
 /// The Mac side (PortraitHost) finds the app through usbmuxd and connects; see
 /// docs/native-viewer-design.md.
 @main
@@ -57,9 +58,11 @@ final class ViewerController: UIViewController {
             overlay.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
             overlay.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
         ])
-        let threeFingers = UITapGestureRecognizer(target: self, action: #selector(toggleOverlay))
-        threeFingers.numberOfTouchesRequired = 3
-        view.addGestureRecognizer(threeFingers)
+        video.input.send = { [weak self] text in
+            guard let self, self.video.hasPicture else { return }
+            self.link.send(text)
+        }
+        video.input.onToggleOverlay = { [weak self] in self?.toggleOverlay() }
 
         link.onConnect = { [weak self] in self?.connected() }
         link.onDisconnect = { [weak self] in self?.disconnected() }
@@ -106,7 +109,7 @@ final class ViewerController: UIViewController {
         if video.hasPicture { message.isHidden = true }
     }
 
-    @objc private func toggleOverlay() {
+    private func toggleOverlay() {
         overlay.isHidden.toggle()
         updateOverlay()
     }

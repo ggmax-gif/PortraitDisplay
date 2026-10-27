@@ -81,6 +81,20 @@ monitor disappears with it.
 | Two-finger tap | Right-click |
 | Three-finger tap | Show or hide the overlay |
 
+The native iPad app (`iPad/`, over the USB cable) adds Mac trackpad gestures:
+
+| On the iPad | On the Mac |
+|---|---|
+| Double or triple tap | Double-click or triple-click (taps close together are sent at the same spot) |
+| Pinch | Zoom, in apps that pinch-zoom on a trackpad |
+| Twist two fingers | Rotate |
+| Three-finger swipe up or down | Mission Control or App Exposé |
+| Three-finger swipe left or right | Switch Space or full-screen app |
+
+Smart zoom (a two-finger double tap) isn't supported, and iPadOS keeps four- and five-finger gestures
+for itself. The swipes press the Mac's Control-arrow shortcuts, so they follow whatever those are set
+to in System Settings → Keyboard → Keyboard Shortcuts → Mission Control.
+
 A mouse or trackpad connected to the iPad works like the Pencil. Input needs Accessibility
 permission for the app (or for Terminal, if you run it from there) in System Settings → Privacy &
 Security → Accessibility. Turn touch input off in Settings, or run with `--no-input`, to keep the iPad

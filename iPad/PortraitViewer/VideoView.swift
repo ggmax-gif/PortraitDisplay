@@ -14,13 +14,30 @@ final class VideoView: UIView {
     private(set) var hasPicture = false
 
     private var format: CMVideoFormatDescription?
+    private var videoSize: CGSize?
     private var waitingForKey = true
+    /// Touch handling; the controller sets where its messages go.
+    private(set) lazy var input = TouchInput(view: self)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
         displayLayer.videoGravity = .resizeAspect
+        input.pictureRect = { [weak self] in self?.pictureRect }
     }
+
+    /// Where the picture is drawn: the stream, aspect-fitted into the view.
+    var pictureRect: CGRect? {
+        guard let size = videoSize, size.width > 0, size.height > 0 else { return nil }
+        let s = min(bounds.width / size.width, bounds.height / size.height)
+        let w = size.width * s, h = size.height * s
+        return CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { input.began(touches, event) }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { input.moved(touches, event) }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { input.ended(touches, event, cancelled: false) }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { input.ended(touches, event, cancelled: true) }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
@@ -39,6 +56,7 @@ final class VideoView: UIView {
                                        width: Int32(width), height: Int32(height),
                                        extensions: extensions as CFDictionary, formatDescriptionOut: &created)
         format = created
+        videoSize = CGSize(width: width, height: height)
         waitingForKey = true
         displayLayer.sampleBufferRenderer.flush()
     }

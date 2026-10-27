@@ -326,7 +326,7 @@ private final class Viewer {
             resync()
         default:
             if text.hasPrefix("d ") { decodeMs = String(text.dropFirst(2)); return }
-            if text.hasPrefix("c ") || text.hasPrefix("p ") || text.hasPrefix("s ") { server.input(text) }
+            if ["c ", "p ", "s ", "g ", "w "].contains(where: text.hasPrefix) { server.input(text) }
         }
     }
 

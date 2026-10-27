@@ -48,6 +48,11 @@ Not for the App Store, because it uses a private API.
   events on the virtual display (needs Accessibility permission). Message format is in its header.
   The viewer page does the gesture recognition: Pencil/mouse = pointer, finger tap = click,
   finger drag = scroll with JS-side momentum, two-finger tap = right-click, three-finger tap = overlay.
+  The native app (`iPad/PortraitViewer/TouchInput.swift`) adds `g z`/`g r` (pinch / rotate, posted as
+  private gesture CGEvents: type 29, field 110 = HID type 8 zoom / 5 rotation, 132 = phase, 113 / 114 =
+  value; verified to reach an NSView's magnify / rotate) and `w` (three-finger swipe → Control-arrow).
+  It snaps a tap near the previous one to the same spot, since the Mac's double-click check is 24 pt.
+  No event type tried produced smart zoom or a page swipe.
 - `Config.swift`: CLI options, token saved in `~/.portraitdisplay-token`, local IP listing.
 - `DisplayController.swift`: owns the virtual display and capture. With `--on-demand` it creates them
   when the first iPad connects and removes them `--linger` seconds (15; the app passes 120) after the last one leaves; capture
@@ -89,8 +94,9 @@ Needs Screen & System Audio Recording permission, and Accessibility for touch in
 terminal app runs it. macOS 15+.
 
 ## Ideas not done yet
-- Native iPad viewer over a USB cable (usbmuxd) or direct peer-to-peer Wi-Fi (Bonjour with
-  `includePeerToPeer`): design in `docs/native-viewer-design.md`, feasibility test in `Spike/link/`.
+- Native iPad viewer: video and input over USB work (`iPad/`, `USBMux.swift`, `ViewerLink.swift`).
+  Still to do: overlay and menu polish, and direct peer-to-peer Wi-Fi (Bonjour with
+  `includePeerToPeer`). Design in `docs/native-viewer-design.md`, feasibility test in `Spike/link/`.
   Measured 2026-10-27: USB 0.31 ms median / 0.94 ms p99, direct Wi-Fi 5.2 ms / 143–268 ms, router
   12.7 ms / 212 ms. Bonjour also finds the iPad over `anri0`, an IPv6 network Xcode runs over the
   cable, so the Wi-Fi test requires a Wi-Fi interface and blocks en0.
