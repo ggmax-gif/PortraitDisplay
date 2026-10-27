@@ -52,7 +52,10 @@ Not for the App Store, because it uses a private API.
 - `DisplayController.swift`: owns the virtual display and capture. With `--on-demand` it creates them
   when the first iPad connects and removes them `--linger` seconds (15; the app passes 120) after the last one leaves; capture
   is stopped before the display goes. Each new display gets a new ID (the injector follows it);
-  macOS restores its Retina mode and position by vendor/product/serial.
+  macOS restores its Retina mode and position by vendor/product/serial. ScreenCaptureKit stops with
+  "Failed to find any displays" whenever the Mac's screens turn off (idle or lid), so a lost capture
+  waits for screens-on, system sleep stops it and wake restarts it (2 s, with retries). While an iPad
+  is connected it holds a PreventUserIdleDisplaySleep assertion, so idling doesn't freeze the iPad.
 - `main.swift`: SIGINT (Ctrl+C, or the app's Stop) is a dispatch source installed right after parsing, so a
   Stop during setup still exits cleanly. `Config.parse` rejects streams above H.264's 139,264 macroblocks:
   the encoder accepts the session but fails every frame. Wires it together, then runs `NSApplication`

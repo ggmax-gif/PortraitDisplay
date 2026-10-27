@@ -118,6 +118,8 @@ Other options (`--help` lists them all):
 
 ## Notes
 
+- While an iPad is connected, the Mac's display doesn't idle off, because nothing can be captured
+  while it's off. Closing the lid pauses the stream; it resumes on its own when you open it.
 - Only frames that changed are sent, so a still screen uses almost no network. If the Wi-Fi can't
   keep up, frames are skipped rather than queued, and the stream resumes from a fresh keyframe, so it
   never falls behind.

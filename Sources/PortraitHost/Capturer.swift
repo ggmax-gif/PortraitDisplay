@@ -38,6 +38,8 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
 
     /// How many more frames the iPads can take; frames beyond that aren't encoded at all.
     var freeSlots: () -> Int = { .max }
+    /// The running stream stopped by itself (e.g. every display went away when the lid closed). Main queue.
+    var onStreamLost: ((Error) -> Void)?
 
     init(config: Config, encoder: VideoEncoder) {
         self.config = config
@@ -159,9 +161,7 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         DispatchQueue.main.async {
             guard stream === self.stream else { return }   // one we stopped, or one that never started
-            print("Screen capture stopped: \(error.localizedDescription)")
-            Status.emit("error", "Screen capture stopped: \(error.localizedDescription)")
-            exit(1)
+            self.onStreamLost?(error)
         }
     }
 
