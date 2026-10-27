@@ -19,6 +19,8 @@ targets:
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: false
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown]
+        NSLocalNetworkUsageDescription: Lets your paired Mac connect over Wi-Fi when the USB cable isn't plugged in.
+        NSBonjourServices: [_portraitdisplay._tcp]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.danielfung.PortraitDisplay.Viewer

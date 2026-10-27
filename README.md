@@ -55,6 +55,13 @@ bar app finds it by itself whenever the iPad is plugged in and the app is open, 
 "iPad connected (USB)". It also adds Mac trackpad gestures (below). Installing it needs Xcode and your
 Apple ID; `iPad/README.md` has the steps.
 
+After the first USB connection, the app also works without the cable, over direct peer-to-peer Wi-Fi
+(the link AirDrop uses), so it doesn't depend on the router or on the network letting devices reach
+each other. The Mac gives the app a key over the cable, and Wi-Fi connections use TLS with that key,
+so no other device can receive your screen and the stream is encrypted. Plugging the cable back in
+switches to USB by itself. Typical round trips are 7 to 10 ms over direct Wi-Fi against about 6 ms
+over USB, with occasional spikes to about 200 ms while the Mac's radio also serves the router.
+
 ## Or run it from Terminal
 
 ```bash
@@ -157,8 +164,7 @@ Other options (`--help` lists them all):
 - The virtual monitor uses a private macOS API, the same one BetterDisplay uses, so this can't go on
   the App Store.
 - `docs/native-viewer-design.md` is the design of the native iPad app, with measured latency for USB,
-  direct peer-to-peer Wi-Fi and the router; `Spike/link/` holds the test that measured them. Direct
-  Wi-Fi isn't built yet.
+  direct peer-to-peer Wi-Fi and the router; `Spike/link/` holds the test that measured them.
 
 ## License
 

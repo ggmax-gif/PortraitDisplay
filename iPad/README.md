@@ -6,7 +6,8 @@ frames are decoded in hardware and shown with `AVSampleBufferDisplayLayer`. No S
 or network is involved. Design and measurements: `docs/native-viewer-design.md`.
 
 Status: video, touch, Pencil and trackpad-style gestures (double tap, pinch, rotate, three-finger
-swipes) work. The main README lists the gestures.
+swipes) work, over the cable or, after one USB connection to pair, over direct peer-to-peer Wi-Fi.
+The main README lists the gestures.
 
 ## Build and install
 

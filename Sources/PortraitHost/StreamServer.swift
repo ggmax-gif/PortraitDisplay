@@ -5,7 +5,8 @@ import Network
 ///   `port`      plain HTTP – setup page and the CA certificate for the iPad to install
 ///   `port + 1`  HTTPS – the viewer page (WebCodecs only works on secure pages)
 ///   `port + 2`  secure WebSocket – codec config (text) and H.264 / HEVC frames (binary)
-/// The native iPad app gets the same messages over the USB cable instead (`acceptStream`, `ViewerLink`).
+/// The native iPad app gets the same messages over the USB cable (`acceptStream`) or direct Wi-Fi
+/// (`acceptDirect`) instead; see `ViewerLink`.
 /// Each iPad acknowledges every frame, with at most 4 unacknowledged. The capturer reads `freeSlots`
 /// and doesn't encode frames the iPads can't take yet, so a slow network lowers the frame rate
 /// instead of adding lag. Dropping an already-encoded frame (rare) resumes at the next keyframe.
@@ -27,6 +28,8 @@ final class StreamServer {
     private let queue = DispatchQueue(label: "portrait.server")
     private var codec: (message: String, version: Int)?
     private var viewers: [ObjectIdentifier: Viewer] = [:]
+    private let usbLock = NSLock()
+    private var usbViewers = 0   // guarded by usbLock; the direct Wi-Fi browser waits while it's above 0
     private var listeners: [NWListener] = []
 
     init(config: Config, token: String) {
@@ -143,6 +146,16 @@ final class StreamServer {
         queue.async { self.accept(SocketStreamLink(fd: fd, name: name, onFinish: onClose)) }
     }
 
+    /// A ready, TLS-PSK-authenticated connection to the native app over direct Wi-Fi.
+    func acceptDirect(_ connection: NWConnection, onClose: @escaping () -> Void) {
+        queue.async { self.accept(ConnectionStreamLink(connection: connection, onFinish: onClose)) }
+    }
+
+    var usbInUse: Bool {
+        usbLock.lock(); defer { usbLock.unlock() }
+        return usbViewers > 0
+    }
+
     private func accept(_ link: ViewerLink) {
         let viewer = Viewer(link: link, server: self)
         viewers[ObjectIdentifier(viewer)] = viewer
@@ -156,6 +169,11 @@ final class StreamServer {
         emitLinks()
         onViewerCount?(authenticatedCount)
         chooseCodec()
+        if viewer.link is SocketStreamLink {
+            usbLock.withLock { usbViewers += 1 }
+            // Over the cable the app is trusted, so it gets the key for direct Wi-Fi now.
+            if config.direct { viewer.sendText(DirectWiFi.pairMessage) }
+        }
     }
 
     /// For the menu bar app: how each connected iPad is connected, e.g. "@links USB" or "@links USB,Wi-Fi".
@@ -179,6 +197,7 @@ final class StreamServer {
         viewers.removeValue(forKey: ObjectIdentifier(viewer))
         updateSlots()
         if wasAuthenticated {
+            if viewer.link is SocketStreamLink { usbLock.withLock { usbViewers -= 1 } }
             print("iPad disconnected. Viewers: \(authenticatedCount)")
             Status.emit("viewers", String(authenticatedCount))
             emitLinks()

@@ -34,6 +34,7 @@ final class ViewerController: UIViewController {
     private let message = UILabel()
     private let overlay = UILabel()
     private var stats = ""
+    private var linkKind = "USB"
     // Counted per second for the overlay, like the web page's.
     private var frames = 0, bytes = 0, rate = 0, kbps = 0
     private var meter: Timer?
@@ -68,7 +69,7 @@ final class ViewerController: UIViewController {
         }
         video.input.onToggleOverlay = { [weak self] in self?.toggleOverlay() }
 
-        link.onConnect = { [weak self] in self?.connected() }
+        link.onConnect = { [weak self] kind in self?.connected(over: kind) }
         link.onDisconnect = { [weak self] in self?.disconnected() }
         link.onMessage = { [weak self] data, isText in self?.received(data, isText: isText) }
         link.onStatus = { [weak self] text in self?.message.text = text }
@@ -88,8 +89,9 @@ final class ViewerController: UIViewController {
         link.start()
     }
 
-    private func connected() {
-        message.text = "Connected. Starting the display…"
+    private func connected(over kind: String) {
+        linkKind = kind
+        message.text = "Connected over \(kind). Starting the display…"
         UIApplication.shared.isIdleTimerDisabled = true
         link.send("hello native" + (VideoView.decodesHEVC ? " hevc" : ""))
     }
@@ -102,7 +104,9 @@ final class ViewerController: UIViewController {
 
     private func showWaiting() {
         message.isHidden = false
-        message.text = "Connect the USB cable and start Portrait Display on the Mac."
+        message.text = PairingKey.stored == nil
+            ? "Connect the USB cable and start Portrait Display on the Mac."
+            : "Start Portrait Display on the Mac. It connects over the USB cable, or directly over Wi-Fi when the cable isn't plugged in."
     }
 
     private func received(_ data: Data, isText: Bool) {
@@ -111,6 +115,9 @@ final class ViewerController: UIViewController {
             if let line = json["stats"] as? String {
                 stats = line
                 updateOverlay()
+            } else if let encoded = json["pair"] as? String, let key = Data(base64Encoded: encoded) {
+                // Sent over USB only: lets this Mac connect over direct Wi-Fi from now on.
+                if PairingKey.store(key) { link.start() }
             } else {
                 video.configure(json)
             }
@@ -149,7 +156,7 @@ final class ViewerController: UIViewController {
         let stream = video.videoSize.map { "\(video.codecName) \(Int($0.width))×\(Int($0.height))" } ?? "–"
         let speed = kbps >= 1000 ? String(format: "%.1f Mbit/s", Double(kbps) / 1000) : "\(kbps) kbit/s"
         overlay.text = [
-            "Connected over USB",
+            "Connected over \(linkKind)",
             "\(rate) updates/s · \(speed) · \(stream)",
             stats.isEmpty ? nil : stats,
             "This screen: \(w)×\(h) pt → in the Mac's Settings, set Size to \(w) × \(h)",

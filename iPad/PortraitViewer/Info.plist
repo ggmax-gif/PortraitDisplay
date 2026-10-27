@@ -20,6 +20,12 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_portraitdisplay._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Lets your paired Mac connect over Wi-Fi when the USB cable isn't plugged in.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIRequiresFullScreen</key>

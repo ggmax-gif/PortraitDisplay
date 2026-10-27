@@ -16,6 +16,7 @@ struct Config {
     var onDemand = false       // virtual display only while an iPad is connected
     var lingerSeconds = 15     // with onDemand: how long it stays after the last iPad leaves
     var usb = true             // connect to the native iPad app over the USB cable
+    var direct = true          // ... and over direct peer-to-peer Wi-Fi, once paired over USB
 
     var pagePort: UInt16 { httpPort &+ 1 }   // HTTPS viewer page
     var wsPort: UInt16 { httpPort &+ 2 }     // secure WebSocket
@@ -48,6 +49,7 @@ struct Config {
                            (it goes away 15 s after the last one leaves)
       --linger <seconds>   With --on-demand: keep it this long after, 0 – 3600 (default 15)
       --no-usb             Don't look for the Portrait Display iPad app on the USB cable
+      --no-direct          Don't connect to the iPad app over direct peer-to-peer Wi-Fi
       --status-lines       Also print "@key value" lines (used by the menu bar app)
       --help               Show this help
     """
@@ -77,6 +79,7 @@ struct Config {
             case "--on-demand": c.onDemand = true
             case "--linger":  c.lingerSeconds = intArg(value(), 0...3600)
             case "--no-usb": c.usb = false
+            case "--no-direct": c.direct = false
             case "--help", "-h": print(usage); exit(0)
             default: fail("Unknown option \(args[i])\n\n\(usage)")
             }

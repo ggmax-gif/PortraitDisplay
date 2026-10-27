@@ -96,9 +96,12 @@ Needs Screen & System Audio Recording permission, and Accessibility for touch in
 terminal app runs it. macOS 15+.
 
 ## Ideas not done yet
-- Native iPad viewer: done over USB (`iPad/`, `USBMux.swift`, `ViewerLink.swift`; the host emits
-  `@links USB|Wi-Fi` for the menu). Still to do: direct peer-to-peer Wi-Fi (Bonjour with
-  `includePeerToPeer`). Design in `docs/native-viewer-design.md`, feasibility test in `Spike/link/`.
+- Native iPad viewer: done (`iPad/`, `USBMux.swift`, `ViewerLink.swift`, `DirectWiFi.swift`; the host
+  emits `@links USB|direct Wi-Fi|Wi-Fi` for the menu). Direct Wi-Fi: Bonjour `_portraitdisplay._tcp`
+  with `includePeerToPeer`, TLS 1.2 PSK with a key the Mac sends over USB
+  (`~/.portraitdisplay/direct-wifi.key`, iPad Keychain); the browser requires a Wi-Fi interface and
+  blocks en0 so it takes awdl0, and waits while a USB viewer is connected. New connections can sit in
+  `.waiting` briefly before the peer-to-peer link is up, so it gives them 10 s. Design in `docs/native-viewer-design.md`, feasibility test in `Spike/link/`.
   Measured 2026-10-27: USB 0.31 ms median / 0.94 ms p99, direct Wi-Fi 5.2 ms / 143–268 ms, router
   12.7 ms / 212 ms. Bonjour also finds the iPad over `anri0`, an IPv6 network Xcode runs over the
   cable, so the Wi-Fi test requires a Wi-Fi interface and blocks en0.

@@ -73,6 +73,16 @@ if config.usb {
     }
     usb.start()
 }
+
+// ... and over direct Wi-Fi (peer-to-peer, no router) once it has been paired over the cable.
+let direct = DirectBrowser()
+if config.direct {
+    direct.usbInUse = { server.usbInUse }
+    direct.onConnected = { connection in
+        server.acceptDirect(connection) { direct.linkClosed() }
+    }
+    direct.start()
+}
 server.onViewerCount = { count in DispatchQueue.main.async { displays.viewersChanged(count) } }
 
 if config.input {

@@ -1,8 +1,11 @@
 # Native iPad viewer: design
 
-Status: the USB path is built and in use (`iPad/`, `Sources/PortraitHost/USBMux.swift`,
-`ViewerLink.swift`): video, touch, Pencil and trackpad gestures, with reconnects on unplugging and
-backgrounding. Direct Wi-Fi isn't built yet. The feasibility test (`Spike/link/`) ran on 2026-10-27;
+Status: built and in use. USB (`iPad/`, `Sources/PortraitHost/USBMux.swift`, `ViewerLink.swift`)
+carries video, touch, Pencil and trackpad gestures, with reconnects on unplugging and backgrounding.
+Direct Wi-Fi (`DirectWiFi.swift`) takes over when the cable is unplugged and hands back when it's
+plugged in; in use it measured 7 to 10 ms typical frame round trips, with busy-moment spikes to about
+200 ms. Pairing is over USB rather than the 4-digit code planned below: the Mac sends the app a
+256-bit key, and Wi-Fi uses TLS 1.2 with it as a pre-shared key. The feasibility test (`Spike/link/`) ran on 2026-10-27;
 results below. Written 2026-10-23, revised 2026-10-27.
 
 ## Results
