@@ -64,6 +64,15 @@ server.macStats = {
 }
 
 let displays = DisplayController(config: config, capturer: capturer)
+
+// The native iPad app over the USB cable; Safari viewers keep using the network.
+let usb = USBMux()
+if config.usb {
+    usb.onConnected = { fd, device in
+        server.acceptStream(fd: fd, name: "USB") { usb.linkClosed(device: device) }
+    }
+    usb.start()
+}
 server.onViewerCount = { count in DispatchQueue.main.async { displays.viewersChanged(count) } }
 
 if config.input {

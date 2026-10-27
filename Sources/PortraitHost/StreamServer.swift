@@ -5,6 +5,7 @@ import Network
 ///   `port`      plain HTTP – setup page and the CA certificate for the iPad to install
 ///   `port + 1`  HTTPS – the viewer page (WebCodecs only works on secure pages)
 ///   `port + 2`  secure WebSocket – codec config (text) and H.264 / HEVC frames (binary)
+/// The native iPad app gets the same messages over the USB cable instead (`acceptStream`, `ViewerLink`).
 /// Each iPad acknowledges every frame, with at most 4 unacknowledged. The capturer reads `freeSlots`
 /// and doesn't encode frames the iPads can't take yet, so a slow network lowers the frame rate
 /// instead of adding lag. Dropping an already-encoded frame (rare) resumes at the next keyframe.
@@ -79,7 +80,7 @@ final class StreamServer {
         for viewer in viewers.values {
             guard let line = viewer.takeStats(seconds: Self.statsInterval) else { continue }
             let text = "\(mac) · \(line)"
-            print("Stats (\(endpointName(viewer.connection))): \(text)")
+            print("Stats (\(viewer.link.name)): \(text)")
             Status.emit("stats", text)
             if let json = try? JSONSerialization.data(withJSONObject: ["stats": text]) {
                 viewer.sendText(json)
@@ -133,13 +134,23 @@ final class StreamServer {
     fileprivate func input(_ message: String) { onInput?(message) }
 
     private func acceptViewer(_ connection: NWConnection) {
-        let viewer = Viewer(connection: connection, server: self)
+        accept(WebSocketLink(connection: connection, logTLSFailure: tlsFailureLogger(connection)))
+    }
+
+    /// A connected stream to the native iPad app (the usbmuxd tunnel). Takes ownership of `fd`;
+    /// `onClose` runs when it ends.
+    func acceptStream(fd: Int32, name: String, onClose: @escaping () -> Void) {
+        queue.async { self.accept(SocketStreamLink(fd: fd, name: name, onFinish: onClose)) }
+    }
+
+    private func accept(_ link: ViewerLink) {
+        let viewer = Viewer(link: link, server: self)
         viewers[ObjectIdentifier(viewer)] = viewer
         viewer.start(on: queue)
     }
 
     fileprivate func viewerAuthenticated(_ viewer: Viewer) {
-        print("iPad connected (\(endpointName(viewer.connection)), "
+        print("iPad connected (\(viewer.link.name), "
               + "\(viewer.decodesHEVC ? "decodes HEVC" : "H.264 only")). Viewers: \(authenticatedCount)")
         Status.emit("viewers", String(authenticatedCount))
         onViewerCount?(authenticatedCount)
@@ -261,7 +272,7 @@ private final class Viewer {
     /// beyond that, frames would just queue up as lag.
     private static let maxInFlight = 4
 
-    let connection: NWConnection
+    let link: ViewerLink
     unowned let server: StreamServer
     var authenticated = false
     private(set) var decodesHEVC = false
@@ -278,45 +289,25 @@ private final class Viewer {
 
     var freeSlots: Int { max(0, Self.maxInFlight - inFlight) }
 
-    init(connection: NWConnection, server: StreamServer) {
-        self.connection = connection
+    init(link: ViewerLink, server: StreamServer) {
+        self.link = link
         self.server = server
     }
 
     func start(on queue: DispatchQueue) {
-        let logTLSFailure = server.tlsFailureLogger(connection)
-        connection.stateUpdateHandler = { [weak self] state in
-            logTLSFailure(state)
-            switch state {
-            case .failed, .cancelled: self?.close()
-            default: break
-            }
-        }
-        connection.start(queue: queue)
-        receive()
-    }
-
-    private func receive() {
-        connection.receiveMessage { [weak self] data, context, _, error in
-            guard let self = self, !self.closed else { return }
-            if error != nil { self.close(); return }
-            if let metadata = context?.protocolMetadata(definition: NWProtocolWebSocket.definition)
-                as? NWProtocolWebSocket.Metadata, metadata.opcode == .close {
-                self.close()
-                return
-            }
-            if let data = data, let text = String(data: data, encoding: .utf8) {
-                self.handle(text)
-            }
-            if !self.closed { self.receive() }
-        }
+        link.start(on: queue, onMessage: { [weak self] data, _ in
+            guard let self, !self.closed, let text = String(data: data, encoding: .utf8) else { return }
+            self.handle(text)
+        }, onClose: { [weak self] in self?.close() })
     }
 
     private func handle(_ text: String) {
         if !authenticated {
-            // "hello <token>", plus " hevc" if the iPad's decoder supports HEVC.
+            // "hello <token>" from Safari, "hello native" from the app over USB (a trusted link, so no
+            // token); either plus " hevc" if the iPad's decoder supports HEVC.
             let words = text.split(separator: " ")
-            guard words.count >= 2, words[0] == "hello", words[1] == server.token else { close(); return }
+            let key = link.trusted ? "native" : server.token
+            guard words.count >= 2, words[0] == "hello", words[1] == key else { close(); return }
             decodesHEVC = words.dropFirst(2).contains("hevc")
             authenticated = true
             server.viewerAuthenticated(self)
@@ -375,7 +366,7 @@ private final class Viewer {
             keyRequested = false
             if let codec = server.currentCodec, codec.version != codecVersionSent {
                 codecVersionSent = codec.version
-                send(Data(codec.message.utf8), opcode: .text)
+                link.send(Data(codec.message.utf8), isText: true)
             }
         }
         inFlight += 1
@@ -383,13 +374,13 @@ private final class Viewer {
         bytes += frame.count
         if isKey { keys += 1 }
         sentTimes.append(ProcessInfo.processInfo.systemUptime)
-        send(frame, opcode: .binary)
+        link.send(frame, isText: false)
         server.updateSlots()
     }
 
     func sendText(_ data: Data) {
         guard authenticated, !closed else { return }
-        send(data, opcode: .text)
+        link.send(data, isText: true)
     }
 
     /// Nil when nothing was sent or skipped (still screen), so the log stays quiet.
@@ -407,19 +398,10 @@ private final class Viewer {
         return line
     }
 
-    private func send(_ data: Data, opcode: NWProtocolWebSocket.Opcode) {
-        let metadata = NWProtocolWebSocket.Metadata(opcode: opcode)
-        let context = NWConnection.ContentContext(identifier: "frame", metadata: [metadata])
-        connection.send(content: data, contentContext: context, isComplete: true,
-                        completion: .contentProcessed { [weak self] error in
-                            if error != nil { self?.close() }
-                        })
-    }
-
     func close() {
         guard !closed else { return }
         closed = true
-        connection.cancel()
+        link.close()
         server.viewerClosed(self)
     }
 }

@@ -1,0 +1,27 @@
+# XcodeGen spec for the native iPad viewer. Generate with `xcodegen` in this folder (the .xcodeproj
+# is not committed); iPad/README.md has the build and install commands.
+name: PortraitViewer
+options:
+  bundleIdPrefix: com.danielfung
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  PortraitViewer:
+    type: application
+    platform: iOS
+    sources: [PortraitViewer]
+    info:
+      path: PortraitViewer/Info.plist
+      properties:
+        CFBundleDisplayName: Portrait Display
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danielfung.PortraitDisplay.Viewer
+        TARGETED_DEVICE_FAMILY: "2"
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.0"
