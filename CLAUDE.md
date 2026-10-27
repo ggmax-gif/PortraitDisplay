@@ -89,5 +89,6 @@ Needs Screen & System Audio Recording permission, and Accessibility for touch in
 terminal app runs it. macOS 15+.
 
 ## Ideas not done yet
-- USB connection through a native iPad app over usbmuxd: design in `docs/usb-design.md`, feasibility
-  test in `Spike/usb/` (written, not yet run on a device).
+- Native iPad viewer over a USB cable (usbmuxd) or direct peer-to-peer Wi-Fi (Bonjour with
+  `includePeerToPeer`): design in `docs/native-viewer-design.md`, feasibility test in `Spike/link/`
+  (written, not yet run on a device).

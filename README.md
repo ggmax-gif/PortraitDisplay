@@ -134,8 +134,9 @@ Other options (`--help` lists them all):
   The key is saved in `~/.portraitdisplay-token`; delete that file to get a new one.
 - The virtual monitor uses a private macOS API, the same one BetterDisplay uses, so this can't go on
   the App Store.
-- `docs/usb-design.md` describes a planned USB connection through a small native iPad app, and
-  `Spike/usb/` holds the test that checks it is feasible.
+- `docs/native-viewer-design.md` describes a planned native iPad app that streams over a USB cable or
+  direct peer-to-peer Wi-Fi, bypassing the router, and `Spike/link/` holds the test that checks both
+  links are feasible.
 
 ## License
 

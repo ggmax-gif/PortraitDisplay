@@ -1,5 +1,5 @@
-# XcodeGen spec for the USB spike's iPad app. Generate with `xcodegen` in this folder (the
-# .xcodeproj is not committed). Spike/usb/README.md has the build and install commands.
+# XcodeGen spec for the link spike's iPad app. Generate with `xcodegen` in this folder (the
+# .xcodeproj is not committed). Spike/link/README.md has the build and install commands.
 name: EchoApp
 options:
   bundleIdPrefix: com.danielfung
@@ -13,7 +13,9 @@ targets:
     info:
       path: Info.plist
       properties:
-        CFBundleDisplayName: USB Echo
+        CFBundleDisplayName: Link Echo
+        NSLocalNetworkUsageDescription: Lets your Mac connect to this test app over Wi-Fi.
+        NSBonjourServices: [_portraitecho._tcp]
         UILaunchScreen: {}
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait]

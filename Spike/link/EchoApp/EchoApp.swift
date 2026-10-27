@@ -1,5 +1,7 @@
-// USB spike, iPad side: listens on loopback port 20808 and echoes every byte back. The Mac reaches it
-// through the cable via usbmuxd (Spike/usb/rtt.swift). See docs/usb-design.md.
+// Link spike, iPad side: echoes every byte back on two listeners. Loopback port 20808 is for the Mac
+// over the USB cable (usbmuxd); the Bonjour service "_portraitecho._tcp", with peer-to-peer allowed,
+// is for the Mac over direct Wi-Fi without the router. Mac side: Spike/link/rtt.swift.
+// See docs/native-viewer-design.md.
 import Network
 import SwiftUI
 
@@ -10,7 +12,7 @@ struct EchoApp: App {
     var body: some Scene {
         WindowGroup {
             VStack(spacing: 12) {
-                Text("USB echo spike").font(.title)
+                Text("Link echo spike").font(.title)
                 Text(echo.status).font(.body.monospaced())
                 Text("\(echo.bytes) bytes echoed").foregroundStyle(.secondary)
             }
@@ -25,30 +27,41 @@ struct EchoApp: App {
 final class EchoServer: ObservableObject {
     @Published var status = "starting"
     @Published var bytes = 0
-    private var listener: NWListener?
+    private var listeners: [NWListener] = []
     private let queue = DispatchQueue(label: "echo")
 
     func start() {
-        guard listener == nil else { return }
+        guard listeners.isEmpty else { return }
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
-        let parameters = NWParameters(tls: nil, tcp: tcp)
-        // usbmuxd delivers the Mac's connection on loopback, so nothing on Wi-Fi can reach this.
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: 20808)
-        parameters.allowLocalEndpointReuse = true
+
+        // USB: usbmuxd delivers the Mac's connection on loopback, so nothing on Wi-Fi reaches this one.
+        let usb = NWParameters(tls: nil, tcp: tcp)
+        usb.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: 20808)
+        usb.allowLocalEndpointReuse = true
+        listen(usb, service: nil, label: "USB")
+
+        // Direct Wi-Fi: advertised over Bonjour, including on the peer-to-peer link AirDrop uses.
+        let wifi = NWParameters(tls: nil, tcp: tcp)
+        wifi.includePeerToPeer = true
+        listen(wifi, service: NWListener.Service(name: UIDevice.current.name, type: "_portraitecho._tcp"), label: "Wi-Fi")
+    }
+
+    private func listen(_ parameters: NWParameters, service: NWListener.Service?, label: String) {
         do {
             let listener = try NWListener(using: parameters)
-            listener.stateUpdateHandler = { [weak self] state in self?.show("listener: \(state)") }
-            listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
+            listener.service = service
+            listener.stateUpdateHandler = { [weak self] state in self?.show("\(label) listener: \(state)") }
+            listener.newConnectionHandler = { [weak self] connection in self?.accept(connection, via: label) }
             listener.start(queue: queue)
-            self.listener = listener
+            listeners.append(listener)
         } catch {
-            show("listener failed: \(error)")
+            show("\(label) listener failed: \(error)")
         }
     }
 
-    private func accept(_ connection: NWConnection) {
-        show("Mac connected")
+    private func accept(_ connection: NWConnection, via label: String) {
+        show("Mac connected over \(label)")
         connection.stateUpdateHandler = { [weak self] state in
             if case .cancelled = state { self?.show("Mac disconnected") }
             if case .failed(let error) = state { self?.show("failed: \(error)"); connection.cancel() }
