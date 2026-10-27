@@ -10,6 +10,13 @@ a Bonjour service (`_portraitecho._tcp`) with peer-to-peer allowed for Wi-Fi. `r
 side. It connects over the chosen link, then times 1,000 round trips of 64 bytes (after 10 unmeasured
 warm-up ones) and 20 of 300 KB, about the size of a keyframe.
 
+Results from the first run, on 2026-10-27, are in `docs/native-viewer-design.md`: USB passed (median
+0.31 ms, 99th percentile 0.94 ms), direct Wi-Fi had a 5.2 ms median but a 143 to 268 ms 99th
+percentile, and the router path measured 12.7 ms and 212 ms.
+
+Keep the echo app on screen while testing. iPadOS suspends it in the background, and its listeners
+are restarted only when it comes back.
+
 ## One-time setup
 
 1. Plug the iPad into the Mac with a USB-C cable that carries data, unlock it, and tap Trust.

@@ -1,7 +1,42 @@
 # Native iPad viewer: design
 
-Status: the feasibility test is written (`Spike/link/`) but hasn't been run on an iPad yet. Nothing
-below is built. Written 2026-10-23, revised 2026-10-27 to add the direct Wi-Fi link.
+Status: the feasibility test (`Spike/link/`) ran on 2026-10-27; results below. USB passes by a wide
+margin, direct Wi-Fi is better than the router but has a long tail. The viewer itself isn't built yet.
+Written 2026-10-23, revised 2026-10-27.
+
+## Results
+
+Measured on 2026-10-27 between a MacBook (Apple silicon, macOS 27.2) and an iPad Pro 12.9" (4th
+generation, iPadOS 27.2), with the Mac also connected to a managed 802.1X Wi-Fi network. Each row is
+1,000 round trips of 64 bytes after a 10-ping warm-up, plus 20 round trips of 300 KB, about one
+keyframe.
+
+| Path | Median | 99th percentile | Worst | 300 KB throughput, each way |
+|---|---|---|---|---|
+| USB cable, usbmuxd | 0.31 ms | 0.94 ms | 1.24 ms | 352 Mbit/s |
+| USB cable, Bonjour over anri0 (see below) | 0.37 ms | 0.72 ms | 1.06 ms | 317 Mbit/s |
+| Direct Wi-Fi, awdl0 (two runs) | 5.24 and 5.27 ms | 143 and 268 ms | 279 and 282 ms | 368 and 349 Mbit/s |
+| Wi-Fi through the router, en0 | 12.73 ms | 212 ms | 449 ms | 48 Mbit/s |
+
+What this means for the design:
+
+- USB passes easily, at about 40 times lower median latency than the router and with no tail, so
+  it's the main path. The router row matches what the stream's stats line has shown all along
+  (12 to 160 ms, spikes to 440 ms), so the test measures what users feel.
+- Direct Wi-Fi halves the router's median latency and has seven times its throughput, but its
+  99th percentile is still 143 to 268 ms. The likely cause is that the Mac's radio is also
+  associated with the router, so it divides its time between the router's channel and the
+  peer-to-peer one, and some packets wait for the switch. Moving frames to UDP wouldn't help with
+  that. Direct Wi-Fi stays as the cable-free option, especially where the router blocks devices
+  from reaching each other.
+- A surprise: while the iPad is paired with Xcode, the cable also carries an ordinary IPv6
+  network (`anri0` on the Mac, link-local addresses only), and Bonjour found the app over it before
+  trying Wi-Fi. The direct Wi-Fi test therefore has to require a Wi-Fi interface and block the
+  router's one. It might also let Safari reach the Mac over the cable without the app, but only
+  while Xcode's device tunnel is up, so it isn't a path to rely on.
+- The echo app's Bonjour listener died with `DefunctConnection` after the app had been in the
+  background, and the USB one stopped too. The real app has to restart its listeners whenever it
+  returns to the foreground, as the echo app now does.
 
 ## Goal
 
@@ -141,18 +176,16 @@ as the flow control already does when an iPad falls behind.
 
 | Risk | How we'd notice | Fallback |
 |---|---|---|
-| usbmuxd `Connect` to an app's port doesn't work on iPadOS 27 (the protocol is private) | The feasibility test never gets `Result 0` | Direct Wi-Fi only |
-| The direct Wi-Fi link isn't used, or isn't faster than the router path | `--wifi` can't connect, or measures like `--wifi-router` | USB only |
+| usbmuxd `Connect` to an app's port doesn't work on iPadOS 27 (the protocol is private) | Ruled out on 2026-10-27: it works, at 0.31 ms | |
+| Direct Wi-Fi's long tail makes it feel no better than the router | Pencil and scrolling over `awdl0` still stutter | USB, or the router path |
 | `AVSampleBufferDisplayLayer` adds a frame or more of delay | Visible delay, or a high decode time | `VTDecompressionSession` with Metal |
 | Reinstalling the free install every 7 days gets tedious | The app stops opening | Automatic reinstall, a paid account, or the Safari page |
 | The app only runs in the foreground | Switching apps on the iPad drops the stream | The same as the web page today; the on-demand display stays for the grace period |
 
 ## Plan
 
-1. Feasibility test, about half a day: the echo app in `Spike/link/` listens on both links, and the
-   Mac program times 1,000 round trips over each of USB, direct Wi-Fi and the router (for
-   comparison), plus 300 KB messages, about a keyframe's size, for throughput. It passes if the
-   median round trip is under 2 ms and the 99th percentile under 5 ms on at least one new link.
+1. Feasibility test: done on 2026-10-27 (results above). USB passed; direct Wi-Fi didn't meet the
+   5 ms 99th-percentile target but beats the router.
 2. The Mac side (`USBMux.swift`, `PeerBrowser.swift`, `ViewerLink` and the attach loop): about a day.
 3. The iPad app (decoding, display, input, overlay, Wi-Fi pairing): two to three days.
 4. Compare latency and how the Pencil feels across the three paths, using the stats line.
@@ -161,9 +194,7 @@ The time estimates are guesses rather than measurements.
 
 ## Open questions
 
-- Does `Connect` need anything beyond the existing trust pairing on iPadOS 27? The feasibility test
-  answers this.
-- How does the direct Wi-Fi link behave while the Mac is also on a busy 802.1X network? It shares
-  the radio with it.
+- How much of direct Wi-Fi's tail goes away when the Mac isn't also on a router network? Worth one
+  run with the Mac's Wi-Fi disconnected from the access point.
 - Should the app tell the Mac its screen size, so the virtual display can size itself instead of
   using the size in Settings?

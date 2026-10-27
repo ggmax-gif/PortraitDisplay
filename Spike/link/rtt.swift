@@ -2,8 +2,8 @@
 // See docs/native-viewer-design.md.
 //
 //   swift Spike/link/rtt.swift                 USB cable, through usbmuxd
-//   swift Spike/link/rtt.swift --wifi          direct Wi-Fi (peer-to-peer, the router's Wi-Fi is blocked)
-//   swift Spike/link/rtt.swift --wifi-router   ordinary Wi-Fi through the access point, for comparison
+//   swift Spike/link/rtt.swift --wifi          direct Wi-Fi only: every interface except the peer-to-peer ones is blocked
+//   swift Spike/link/rtt.swift --wifi-router   ordinary Wi-Fi through the access point (pinned to en0), for comparison
 import Foundation
 import Network
 
@@ -154,21 +154,25 @@ final class ConnectionLink: Link {
     }
 }
 
-/// The Mac's ordinary (infrastructure) Wi-Fi and wired interfaces, to block for a direct-only test.
-func routerInterfaces() -> [NWInterface] {
-    let monitor = NWPathMonitor()
-    let done = DispatchSemaphore(value: 0)
-    var found: [NWInterface] = []
-    monitor.pathUpdateHandler = { path in
-        found = path.availableInterfaces.filter {
-            ($0.type == .wifi || $0.type == .wiredEthernet) && !$0.name.hasPrefix("awdl") && !$0.name.hasPrefix("llw")
+/// Every interface except the peer-to-peer Wi-Fi ones (awdl, llw) and loopback, to block for a
+/// direct-only test. That includes the router's Wi-Fi and anri0, an IPv6 network Xcode's device tools
+/// run over the USB cable, which Bonjour otherwise finds first while the iPad is plugged in.
+func nonPeerToPeerInterfaces() -> [NWInterface] {
+    var found: [String: NWInterface] = [:]
+    // One monitor per type: the default monitor only lists interfaces it would route through.
+    for type in [NWInterface.InterfaceType.wifi, .wiredEthernet, .other, .cellular] {
+        let monitor = NWPathMonitor(requiredInterfaceType: type)
+        let done = DispatchSemaphore(value: 0)
+        monitor.pathUpdateHandler = { path in
+            for interface in path.availableInterfaces
+            where !interface.name.hasPrefix("awdl") && !interface.name.hasPrefix("llw") { found[interface.name] = interface }
+            done.signal()
         }
-        done.signal()
+        monitor.start(queue: DispatchQueue(label: "monitor"))
+        _ = done.wait(timeout: .now() + 2)
+        monitor.cancel()
     }
-    monitor.start(queue: DispatchQueue(label: "monitor"))
-    _ = done.wait(timeout: .now() + 2)
-    monitor.cancel()
-    return found
+    return Array(found.values)
 }
 
 func connectOverWiFi(directOnly: Bool) -> (Link, String) {
@@ -177,9 +181,15 @@ func connectOverWiFi(directOnly: Bool) -> (Link, String) {
     let parameters = NWParameters(tls: nil, tcp: tcp)
     parameters.includePeerToPeer = true
     if directOnly {
-        let blocked = routerInterfaces()
+        // Wi-Fi only, which rules out anri0 (the network over the USB cable); with the router's
+        // interfaces blocked as well, what's left is the peer-to-peer one.
+        parameters.requiredInterfaceType = .wifi
+        let blocked = nonPeerToPeerInterfaces()
         parameters.prohibitedInterfaces = blocked
         print("Direct Wi-Fi only: not using \(Set(blocked.map(\.name)).sorted().joined(separator: ", ")).")
+    } else if let router = nonPeerToPeerInterfaces().first(where: { $0.name == "en0" }) {
+        parameters.requiredInterface = router   // not the peer-to-peer link, and not anri0 over the cable
+        print("Router path only: using \(router.name).")
     }
     let queue = DispatchQueue(label: "wifi")
     let browser = NWBrowser(for: .bonjour(type: service, domain: nil), using: parameters)
@@ -202,6 +212,7 @@ func connectOverWiFi(directOnly: Bool) -> (Link, String) {
     connection.stateUpdateHandler = { state in
         switch state {
         case .ready: ready.signal()
+        case .waiting(let error): print("  waiting: \(error)")
         case .failed(let error): print("SPIKE FAILED: \(error)"); exit(1)
         default: break
         }

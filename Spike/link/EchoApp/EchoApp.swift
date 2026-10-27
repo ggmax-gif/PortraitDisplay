@@ -8,30 +8,36 @@ import SwiftUI
 @main
 struct EchoApp: App {
     @StateObject private var echo = EchoServer()
+    @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
             VStack(spacing: 12) {
                 Text("Link echo spike").font(.title)
-                Text(echo.status).font(.body.monospaced())
+                ForEach(echo.status.keys.sorted(), id: \.self) { label in
+                    Text("\(label): \(echo.status[label] ?? "")").font(.body.monospaced())
+                }
                 Text("\(echo.bytes) bytes echoed").foregroundStyle(.secondary)
             }
-            .onAppear {
-                UIApplication.shared.isIdleTimerDisabled = true
-                echo.start()
+            .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
+            // Suspension in the background kills the listeners (the Bonjour one fails with
+            // DefunctConnection), so start them afresh every time the app comes back on screen.
+            .onChange(of: phase, initial: true) { _, now in
+                if now == .active { echo.start() }
             }
         }
     }
 }
 
 final class EchoServer: ObservableObject {
-    @Published var status = "starting"
+    @Published var status: [String: String] = [:]
     @Published var bytes = 0
     private var listeners: [NWListener] = []
     private let queue = DispatchQueue(label: "echo")
 
     func start() {
-        guard listeners.isEmpty else { return }
+        listeners.forEach { $0.cancel() }
+        listeners = []
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
 
@@ -51,20 +57,25 @@ final class EchoServer: ObservableObject {
         do {
             let listener = try NWListener(using: parameters)
             listener.service = service
-            listener.stateUpdateHandler = { [weak self] state in self?.show("\(label) listener: \(state)") }
+            listener.stateUpdateHandler = { [weak self] state in
+                self?.show(label, "listener \(state)")
+                if case .failed = state {   // try again in a second
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self?.start() }
+                }
+            }
             listener.newConnectionHandler = { [weak self] connection in self?.accept(connection, via: label) }
             listener.start(queue: queue)
             listeners.append(listener)
         } catch {
-            show("\(label) listener failed: \(error)")
+            show(label, "listener failed: \(error)")
         }
     }
 
     private func accept(_ connection: NWConnection, via label: String) {
-        show("Mac connected over \(label)")
+        show(label, "Mac connected")
         connection.stateUpdateHandler = { [weak self] state in
-            if case .cancelled = state { self?.show("Mac disconnected") }
-            if case .failed(let error) = state { self?.show("failed: \(error)"); connection.cancel() }
+            if case .cancelled = state { self?.show(label, "Mac disconnected") }
+            if case .failed(let error) = state { self?.show(label, "failed: \(error)"); connection.cancel() }
         }
         connection.start(queue: queue)
         receive(on: connection)
@@ -81,7 +92,7 @@ final class EchoServer: ObservableObject {
         }
     }
 
-    private func show(_ text: String) {
-        DispatchQueue.main.async { self.status = text }
+    private func show(_ label: String, _ text: String) {
+        DispatchQueue.main.async { self.status[label] = text }
     }
 }
