@@ -79,6 +79,8 @@ Not for the App Store, because it uses a private API.
   place while open and rebuilds only when its items change. Log: `~/Library/Logs/PortraitDisplay.log`.
   The host lives in `Contents/Helpers`: from `Contents/MacOS` it registered as a second app with the same
   bundle ID.
+- `scripts/make-icons.sh` draws the icon (`scripts/make-icon.swift`) into the iPad asset catalog and
+  `Resources/AppIcon.icns`, which make-app.sh copies into the bundle.
 - `scripts/make-app.sh`: builds `Portrait Display.app` into `~/Applications`, signed with a self-signed
   certificate in its own keychain in `~/.portraitdisplay/signing`. TCC keys permissions on that certificate
   (designated requirement = identifier + leaf hash), so they survive rebuilds; ad-hoc signing would not.
@@ -94,8 +96,8 @@ Needs Screen & System Audio Recording permission, and Accessibility for touch in
 terminal app runs it. macOS 15+.
 
 ## Ideas not done yet
-- Native iPad viewer: video and input over USB work (`iPad/`, `USBMux.swift`, `ViewerLink.swift`).
-  Still to do: overlay and menu polish, and direct peer-to-peer Wi-Fi (Bonjour with
+- Native iPad viewer: done over USB (`iPad/`, `USBMux.swift`, `ViewerLink.swift`; the host emits
+  `@links USB|Wi-Fi` for the menu). Still to do: direct peer-to-peer Wi-Fi (Bonjour with
   `includePeerToPeer`). Design in `docs/native-viewer-design.md`, feasibility test in `Spike/link/`.
   Measured 2026-10-27: USB 0.31 ms median / 0.94 ms p99, direct Wi-Fi 5.2 ms / 143–268 ms, router
   12.7 ms / 212 ms. Bonjour also finds the iPad over `anri0`, an IPv6 network Xcode runs over the

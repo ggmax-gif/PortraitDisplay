@@ -1,8 +1,9 @@
 # Native iPad viewer: design
 
-Status: the feasibility test (`Spike/link/`) ran on 2026-10-27; results below. USB passes by a wide
-margin, direct Wi-Fi is better than the router but has a long tail. The viewer itself isn't built yet.
-Written 2026-10-23, revised 2026-10-27.
+Status: the USB path is built and in use (`iPad/`, `Sources/PortraitHost/USBMux.swift`,
+`ViewerLink.swift`): video, touch, Pencil and trackpad gestures, with reconnects on unplugging and
+backgrounding. Direct Wi-Fi isn't built yet. The feasibility test (`Spike/link/`) ran on 2026-10-27;
+results below. Written 2026-10-23, revised 2026-10-27.
 
 ## Results
 

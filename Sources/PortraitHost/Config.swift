@@ -110,7 +110,8 @@ func fail(_ message: String) -> Never {
 }
 
 /// With --status-lines, "@key value" lines next to the normal output, for the menu bar app to read.
-/// Keys: url, running, display (on / off), viewers, stats, needs-accessibility, error.
+/// Keys: url, running, display (on / off), viewers, links (USB / Wi-Fi per iPad), stats,
+/// needs-accessibility, error.
 enum Status {
     static var enabled = false
 

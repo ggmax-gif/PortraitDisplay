@@ -159,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case 0 where !host.displayOn: return "Ready – open the link on the iPad"
             case 0 where host.onDemand: return "On – iPad gone, display closes soon"
             case 0: return "On – waiting for the iPad"
-            case 1: return "On – iPad connected"
+            case 1: return "On – iPad connected" + (host.links.first.map { " (\($0))" } ?? "")
             default: return "On – \(host.viewers) iPads connected"
             }
         }

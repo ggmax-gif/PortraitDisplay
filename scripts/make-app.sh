@@ -22,9 +22,10 @@ APP="build/$APP_NAME.app"
 rm -rf "$APP"
 # The host goes in Helpers, not MacOS: it runs an AppKit run loop, and from Contents/MacOS macOS
 # would register it as a second "Portrait Display" (same bundle ID), so a Quit could reach it instead.
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN/PortraitMenu" "$APP/Contents/MacOS/PortraitDisplay"
 cp "$BIN/PortraitHost" "$APP/Contents/Helpers/PortraitHost"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"   # scripts/make-icons.sh makes it
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -34,6 +35,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundleDisplayName</key><string>$APP_NAME</string>
     <key>CFBundleExecutable</key><string>PortraitDisplay</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundleVersion</key><string>$(git rev-list --count HEAD 2>/dev/null || echo 1)</string>

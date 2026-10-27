@@ -14,7 +14,8 @@ final class VideoView: UIView {
     private(set) var hasPicture = false
 
     private var format: CMVideoFormatDescription?
-    private var videoSize: CGSize?
+    private(set) var videoSize: CGSize?
+    private(set) var codecName = ""
     private var waitingForKey = true
     /// Touch handling; the controller sets where its messages go.
     private(set) lazy var input = TouchInput(view: self)
@@ -57,6 +58,7 @@ final class VideoView: UIView {
                                        extensions: extensions as CFDictionary, formatDescriptionOut: &created)
         format = created
         videoSize = CGSize(width: width, height: height)
+        codecName = hevc ? "HEVC" : "H.264"
         waitingForKey = true
         displayLayer.sampleBufferRenderer.flush()
     }

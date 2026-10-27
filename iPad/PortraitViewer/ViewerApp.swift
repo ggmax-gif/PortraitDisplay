@@ -34,6 +34,10 @@ final class ViewerController: UIViewController {
     private let message = UILabel()
     private let overlay = UILabel()
     private var stats = ""
+    // Counted per second for the overlay, like the web page's.
+    private var frames = 0, bytes = 0, rate = 0, kbps = 0
+    private var meter: Timer?
+    private var hideOverlay: DispatchWorkItem?
 
     override func loadView() {
         view = video
@@ -43,7 +47,7 @@ final class ViewerController: UIViewController {
         message.numberOfLines = 0
         overlay.textColor = .white
         overlay.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        overlay.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        overlay.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         overlay.numberOfLines = 0
         overlay.isHidden = true
         for label in [message, overlay] {
@@ -70,6 +74,14 @@ final class ViewerController: UIViewController {
         link.onStatus = { [weak self] text in self?.message.text = text }
         video.onNeedKeyframe = { [weak self] in self?.link.send("key") }
         showWaiting()
+        meter = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.rate = self.frames
+            self.kbps = self.bytes * 8 / 1000
+            self.frames = 0
+            self.bytes = 0
+            self.updateOverlay()
+        }
     }
 
     func becameActive() {
@@ -105,18 +117,45 @@ final class ViewerController: UIViewController {
             return
         }
         link.send("ack")   // every frame, shown or not: the Mac allows 4 unacknowledged
+        frames += 1
+        bytes += data.count
+        let hadPicture = video.hasPicture
         video.show(data)
-        if video.hasPicture { message.isHidden = true }
+        if video.hasPicture, !hadPicture {
+            message.isHidden = true
+            showOverlayBriefly()   // as the web page does on connecting: what it is, and the gestures
+        }
     }
 
     private func toggleOverlay() {
+        hideOverlay?.cancel()
         overlay.isHidden.toggle()
         updateOverlay()
+    }
+
+    private func showOverlayBriefly() {
+        overlay.isHidden = false
+        updateOverlay()
+        hideOverlay?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.overlay.isHidden = true }
+        hideOverlay = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: work)
     }
 
     private func updateOverlay() {
         guard !overlay.isHidden else { return }
         let size = view.bounds.size
-        overlay.text = " USB · \(Int(size.width))×\(Int(size.height)) pt \n \(stats.isEmpty ? "–" : stats) "
+        let w = Int(min(size.width, size.height)), h = Int(max(size.width, size.height))
+        let stream = video.videoSize.map { "\(video.codecName) \(Int($0.width))×\(Int($0.height))" } ?? "–"
+        let speed = kbps >= 1000 ? String(format: "%.1f Mbit/s", Double(kbps) / 1000) : "\(kbps) kbit/s"
+        overlay.text = [
+            "Connected over USB",
+            "\(rate) updates/s · \(speed) · \(stream)",
+            stats.isEmpty ? nil : stats,
+            "This screen: \(w)×\(h) pt → in the Mac's Settings, set Size to \(w) × \(h)",
+            "Pencil: point & drag · tap: click · double tap: double-click · drag: scroll",
+            "Pinch: zoom · twist: rotate · 2-finger tap: right-click",
+            "3-finger swipe: Mission Control / Spaces · 3-finger tap: hide this",
+        ].compactMap { $0 }.map { " \($0) " }.joined(separator: "\n")
     }
 }

@@ -8,6 +8,7 @@ final class HostProcess {
     private(set) var state = State.stopped
     private(set) var urls: [String] = []
     private(set) var viewers = 0
+    private(set) var links: [String] = []   // how each connected iPad is connected: "USB", "Wi-Fi"
     private(set) var displayOn = false
     private(set) var stats: String?
     private(set) var needsAccessibility = false
@@ -40,7 +41,7 @@ final class HostProcess {
 
     func start() {
         guard process == nil else { return }
-        urls = []; viewers = 0; displayOn = false; stats = nil; needsAccessibility = false; lastError = nil
+        urls = []; viewers = 0; links = []; displayOn = false; stats = nil; needsAccessibility = false; lastError = nil
         interrupted = false
         pending = Data()
 
@@ -120,6 +121,7 @@ final class HostProcess {
             viewers = Int(value) ?? 0
             if viewers == 0 { stats = nil }   // the host only sends stats while frames flow to an iPad
         case "display": displayOn = value == "on"
+        case "links": links = value.isEmpty ? [] : value.split(separator: ",").map(String.init)
         case "stats": stats = value
         case "needs-accessibility": needsAccessibility = true
         case "error": lastError = value
@@ -134,6 +136,7 @@ final class HostProcess {
         runningArguments = nil
         state = .stopped
         viewers = 0
+        links = []
         displayOn = false
         stats = nil
         try? log?.close()

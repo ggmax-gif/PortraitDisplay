@@ -47,6 +47,14 @@ defaults write com.danielfung.PortraitDisplay hostArguments -array --fps 90
 
 Each run's output is in `~/Library/Logs/PortraitDisplay.log` (Show Log in the menu).
 
+## Or use the iPad app over a USB cable
+
+`iPad/` holds a native iPad app that shows the display over the USB-C cable instead of Safari and
+Wi-Fi: no network, no certificate, and a round trip of a few milliseconds instead of tens. The menu
+bar app finds it by itself whenever the iPad is plugged in and the app is open, and the menu then says
+"iPad connected (USB)". It also adds Mac trackpad gestures (below). Installing it needs Xcode and your
+Apple ID; `iPad/README.md` has the steps.
+
 ## Or run it from Terminal
 
 ```bash
@@ -148,9 +156,9 @@ Other options (`--help` lists them all):
   The key is saved in `~/.portraitdisplay-token`; delete that file to get a new one.
 - The virtual monitor uses a private macOS API, the same one BetterDisplay uses, so this can't go on
   the App Store.
-- `docs/native-viewer-design.md` describes a planned native iPad app that streams over a USB cable or
-  direct peer-to-peer Wi-Fi, bypassing the router, and `Spike/link/` holds the test that checks both
-  links are feasible.
+- `docs/native-viewer-design.md` is the design of the native iPad app, with measured latency for USB,
+  direct peer-to-peer Wi-Fi and the router; `Spike/link/` holds the test that measured them. Direct
+  Wi-Fi isn't built yet.
 
 ## License
 

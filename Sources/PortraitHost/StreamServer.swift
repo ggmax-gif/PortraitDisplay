@@ -153,8 +153,14 @@ final class StreamServer {
         print("iPad connected (\(viewer.link.name), "
               + "\(viewer.decodesHEVC ? "decodes HEVC" : "H.264 only")). Viewers: \(authenticatedCount)")
         Status.emit("viewers", String(authenticatedCount))
+        emitLinks()
         onViewerCount?(authenticatedCount)
         chooseCodec()
+    }
+
+    /// For the menu bar app: how each connected iPad is connected, e.g. "@links USB" or "@links USB,Wi-Fi".
+    private func emitLinks() {
+        Status.emit("links", viewers.values.filter { $0.authenticated }.map { $0.link.kind }.sorted().joined(separator: ","))
     }
 
     /// With --codec hevc: one encoder serves every iPad, so HEVC only while all of them can decode it.
@@ -175,6 +181,7 @@ final class StreamServer {
         if wasAuthenticated {
             print("iPad disconnected. Viewers: \(authenticatedCount)")
             Status.emit("viewers", String(authenticatedCount))
+            emitLinks()
             onViewerCount?(authenticatedCount)
             chooseCodec()
             onViewerGone?()

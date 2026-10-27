@@ -8,6 +8,8 @@ import Network
 protocol ViewerLink: AnyObject {
     /// For log lines: an IP address, or "USB".
     var name: String { get }
+    /// How the iPad is connected, for the menu bar app: "USB" or "Wi-Fi".
+    var kind: String { get }
     /// True when reaching the link already proves who it is (the cable needs physical access and a
     /// trusted pairing), so `hello` needs no token.
     var trusted: Bool { get }
@@ -34,6 +36,7 @@ final class WebSocketLink: ViewerLink {
     }
 
     var trusted: Bool { false }
+    var kind: String { "Wi-Fi" }
 
     func start(on queue: DispatchQueue, onMessage: @escaping (Data, Bool) -> Void, onClose: @escaping () -> Void) {
         self.onClose = onClose
@@ -87,6 +90,7 @@ final class SocketStreamLink: ViewerLink {
 
     let name: String
     var trusted: Bool { true }
+    var kind: String { "USB" }
     private let fd: Int32
     private var channel: DispatchIO?
     private var queue: DispatchQueue?
