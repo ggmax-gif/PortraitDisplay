@@ -2,17 +2,23 @@
 
 [![CI](https://github.com/ggmax-gif/PortraitDisplay/actions/workflows/ci.yml/badge.svg)](https://github.com/ggmax-gif/PortraitDisplay/actions/workflows/ci.yml)
 
-Use an iPad as a portrait second screen for a Mac. The iPad shows it in Safari over Wi-Fi, so
-there is no iPad app to install and Sidecar isn't involved. I wrote it because Sidecar on my Mac
-only works in landscape, and I wanted a portrait page for reading documents.
+Use an iPad as a portrait second screen for a Mac, without Sidecar. I wrote it because Sidecar on my
+Mac only works in landscape, and I wanted a portrait page for reading documents.
 
-The Mac creates a portrait virtual monitor, captures it with ScreenCaptureKit, encodes it as H.264
-in hardware and streams it to a full-screen web page on the iPad, which decodes it in hardware with
-WebCodecs. Touch and Apple Pencil input on the iPad is sent back and replayed on the Mac.
+The iPad can show it in Safari over Wi-Fi, with nothing to install. Or it can use the native iPad app,
+which you build and install with Xcode. The app connects over the USB cable (round trips of about
+6 ms), or over direct peer-to-peer Wi-Fi once paired (7 to 10 ms). It also adds Mac trackpad
+gestures, and turning the iPad sideways makes the display landscape.
 
-Requirements: a Mac with Apple silicon on macOS 15 or later, Xcode or the Command Line Tools, and
-an iPad on iPadOS 16.4 or later. Both need to be on the same network, and the network has to let
-devices talk to each other.
+The Mac creates a portrait virtual monitor, captures it with ScreenCaptureKit and encodes it in
+hardware as H.264 (or HEVC). The iPad decodes it in hardware as well, with WebCodecs in Safari and
+AVSampleBufferDisplayLayer in the app. Touch and Apple Pencil input on the iPad is sent back and
+replayed on the Mac.
+
+Requirements: a Mac with Apple silicon on macOS 15 or later, with Xcode or the Command Line Tools.
+For Safari, an iPad on iPadOS 16.4 or later, on the same network as the Mac, and a network that lets
+devices talk to each other. For the app, iPadOS 17 or later, full Xcode and an Apple ID (a free one
+works).
 
 ## How it works
 
@@ -55,10 +61,10 @@ page. The script signs the app with a self-signed certificate kept in `~/.portra
 which is what lets those permissions survive rebuilds. If you delete that folder, macOS asks again.
 
 As with Sidecar, the "Portrait iPad" display only exists while the iPad is connected. Start gets the
-Mac ready, the display appears when you open the page on the iPad, and it goes away 2 minutes after
-the iPad leaves. Windows on it then move back to the main screen.
+Mac ready, the display appears when the iPad connects, and it goes away 2 minutes after the iPad
+leaves. Windows on it then move back to the main screen.
 
-Settings in the menu holds the size, Retina, frame rate, codec, bitrate cap, stream resolution,
+Settings in the menu holds the size (or matching the iPad app's screen size), Retina, frame rate, codec, bitrate cap, stream resolution,
 touch input and port, how long the display stays after the iPad leaves (15 seconds to 15 minutes),
 whether the display appears only while an iPad is connected, Start when the app opens, and Launch at
 Login. Changes are saved as you make them; a number is saved when you press Return or leave the
@@ -71,13 +77,12 @@ defaults write com.danielfung.PortraitDisplay hostArguments -array --fps 90
 
 Each run's output is in `~/Library/Logs/PortraitDisplay.log` (Show Log in the menu).
 
-## Or use the iPad app over a USB cable
+## Or use the iPad app
 
-`iPad/` holds a native iPad app that shows the display over the USB-C cable instead of Safari and
-Wi-Fi: no network, no certificate, and a round trip of a few milliseconds instead of tens. The menu
-bar app finds it by itself whenever the iPad is plugged in and the app is open, and the menu then says
-"iPad connected (USB)". It also adds Mac trackpad gestures (below). Installing it needs Xcode and your
-Apple ID. After a one-time setup (`iPad/README.md`), `scripts/install-ipad.sh` builds the app and
+`iPad/` holds a native iPad app that shows the display over the USB-C cable. It needs no network or
+certificate, and a round trip takes a few milliseconds rather than tens. The menu bar app finds it
+whenever the iPad is plugged in and the app is open, and the menu then says "iPad connected (USB)".
+Installing it needs Xcode and your Apple ID. After a one-time setup (`iPad/README.md`), `scripts/install-ipad.sh` builds the app and
 installs it on the iPad. With a free Apple account an install lasts 7 days: the menu shows when it
 runs out, and Reinstall iPad App runs the script again for another 7 days.
 
@@ -106,7 +111,7 @@ screen. Allow it, quit Terminal completely with ⌘Q, reopen it and run the comm
 then prints an address like `http://192.168.1.23:8080/?t=…`. Press Ctrl+C to stop; the virtual
 monitor disappears with it.
 
-## On the iPad
+## In Safari on the iPad
 
 1. Join the same Wi-Fi as the Mac and turn Sidecar off.
 2. Open the address in Safari.
@@ -129,7 +134,7 @@ monitor disappears with it.
 | Two-finger tap | Right-click |
 | Three-finger tap | Show or hide the overlay |
 
-The native iPad app (`iPad/`, over the USB cable) adds Mac trackpad gestures:
+The native iPad app (`iPad/`) adds Mac trackpad gestures:
 
 | On the iPad | On the Mac |
 |---|---|
