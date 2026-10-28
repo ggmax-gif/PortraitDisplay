@@ -40,6 +40,9 @@ works).
 - Hardware H.264 or HEVC, and only changed frames are sent, so a still screen uses almost no network.
 - MIT licensed, no third-party dependencies, and 42 unit tests that run on every push.
 
+A 10-slide overview, with the measured latency and how it works:
+[docs/PortraitDisplay-deck.pdf](docs/PortraitDisplay-deck.pdf).
+
 ## How it works
 
 ```mermaid
