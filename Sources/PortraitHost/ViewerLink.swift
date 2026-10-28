@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Shared
 
 /// How one viewer's messages travel. Safari uses a secure WebSocket; the native iPad app uses a plain
 /// byte stream through the USB cable (usbmuxd), with each message framed as
@@ -83,34 +84,6 @@ final class WebSocketLink: ViewerLink {
     }
 }
 
-/// The native app's framing: `[u32 big-endian length of the rest][u8 kind: 0 text, 1 binary][payload]`.
-enum MessageFrames {
-    /// Messages from the iPad are small (acks, input); anything bigger is a broken stream.
-    static let maxIncoming = 64 * 1024
-
-    static func frame(_ data: Data, isText: Bool) -> Data {
-        var framed = Data(capacity: 5 + data.count)
-        withUnsafeBytes(of: UInt32(1 + data.count).bigEndian) { framed.append(contentsOf: $0) }
-        framed.append(isText ? 0 : 1)
-        framed.append(data)
-        return framed
-    }
-
-    /// Removes the complete messages at the front of `buffer`; nil if the stream is broken.
-    static func take(from buffer: inout Data) -> [(Data, Bool)]? {
-        var messages: [(Data, Bool)] = []
-        while buffer.count >= 5 {
-            let length = buffer.prefix(4).reduce(0) { $0 << 8 | Int($1) }
-            guard length >= 1, length <= maxIncoming else { return nil }
-            guard buffer.count >= 4 + length else { break }
-            let start = buffer.startIndex
-            messages.append((Data(buffer[(start + 5)..<(start + 4 + length)]), buffer[start + 4] == 0))
-            buffer.removeSubrange(start..<(start + 4 + length))
-        }
-        return messages
-    }
-}
-
 /// A connected stream socket (the usbmuxd tunnel to the iPad app) carrying framed messages.
 final class SocketStreamLink: ViewerLink {
     let name: String
@@ -146,7 +119,7 @@ final class SocketStreamLink: ViewerLink {
 
     private func received(_ data: Data, _ onMessage: (Data, Bool) -> Void) {
         pending.append(data)
-        guard let messages = MessageFrames.take(from: &pending) else { finish(); return }
+        guard let messages = MessageFrames.take(from: &pending, maxLength: MessageFrames.maxFromIPad) else { finish(); return }
         for (payload, isText) in messages where onClose != nil { onMessage(payload, isText) }
     }
 
@@ -208,7 +181,7 @@ final class ConnectionStreamLink: ViewerLink {
                 guard let self, self.onClose != nil else { return }
                 if let data, !data.isEmpty {
                     self.pending.append(data)
-                    guard let messages = MessageFrames.take(from: &self.pending) else { self.finish(); return }
+                    guard let messages = MessageFrames.take(from: &self.pending, maxLength: MessageFrames.maxFromIPad) else { self.finish(); return }
                     for (payload, isText) in messages where self.onClose != nil { onMessage(payload, isText) }
                 }
                 if done || error != nil { self.finish(); return }

@@ -32,7 +32,8 @@ Not for the App Store, because it uses a private API.
   for the current IPs is issued with `/usr/bin/openssl` each run and loaded in memory only.
 - `StreamServer.swift`: Network.framework. HTTP on `--port` (default 8080) serves the setup page and
   the CA. HTTPS on port+1 serves the viewer page and manifest. Secure WebSocket on port+2: client sends
-  `hello <token>`, server sends codec config (JSON text) before keyframes and frames as binary
+  `hello <token>` (`Hello` parses it; the native app sends `native`, plus `size=WxH` and `expires=<unix>`,
+  re-emitted as `@ipad-size` / `@ipad-expires`), server sends codec config (JSON text) before keyframes and frames as binary
   (1-byte keyframe flag + AVCC). Client sends `ack` per frame, `key` after a decoder error, `d <ms>`
   (decode time) and input messages (`c`/`p`/`s …`). At most 4 unacked frames per iPad.
   Every 2 s while frames flow, a stats line (capture, encode, sent/skipped, Mbit/s, ack round trip,
@@ -78,7 +79,20 @@ Not for the App Store, because it uses a private API.
   A main menu is installed (never shown) only so Cmd-C/V/A/W work in that window. The menu updates its status and stats lines in
   place while open and rebuilds only when its items change. Log: `~/Library/Logs/PortraitDisplay.log`.
   The host lives in `Contents/Helpers`: from `Contents/MacOS` it registered as a second app with the same
-  bundle ID.
+  bundle ID. "Match the iPad app's screen size" (default on) saves `@ipad-size` and restarts the host,
+  only while one iPad is connected (two of different sizes would restart each other). Unpair iPads…
+  deletes `~/.portraitdisplay/direct-wifi.key`; Reinstall iPad App opens `scripts/install-ipad.sh` in
+  Terminal (checkout path from Info.plist `PortraitDisplaySource`, written by make-app.sh).
+- `Sources/Shared/`: code both sides compile (SwiftPM target for the host, framework target in
+  `iPad/project.yml` for the app): `MessageFrames`, `DirectWiFiTLS` + `Pairing`, `Gestures` + `TapSnapper`.
+- `scripts/install-ipad.sh`: team ID from the Apple Development certificate's OU, first physical iPad from
+  `devicectl list devices` (`properties.hardware`; the old top-level fields are deprecated). Xcode reuses a
+  cached profile until it expires, so the script moves this app's profile aside to get a new 7-day one;
+  if fetching fails (seen 2026-10-28: "missing Xcode-Username", then "No Accounts"), it moves it back
+  and builds with it.
+- Tests (`Tests/`): XCTest, so `swift test` needs Xcode's toolchain (`DEVELOPER_DIR`), not the CLT.
+  `CodecTests` checks the SPS patch with its own spec-following parser. CI: `.github/workflows/ci.yml`
+  on `macos-26` (build, test, unsigned iPad build).
 - `scripts/make-icons.sh` draws the icon (`scripts/make-icon.swift`) into the iPad asset catalog and
   `Resources/AppIcon.icns`, which make-app.sh copies into the bundle.
 - `scripts/make-app.sh`: builds `Portrait Display.app` into `~/Applications`, signed with a self-signed
@@ -91,6 +105,8 @@ Not for the App Store, because it uses a private API.
 swift build -c release
 swift run -c release PortraitHost   # defaults to 1024×1334 pt @ 60 fps (iPad Pro 12.9" Home Screen app)
 scripts/make-app.sh                 # menu bar app → ~/Applications/Portrait Display.app
+scripts/install-ipad.sh             # native iPad app → the paired iPad (needs Xcode, xcodegen)
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ```
 Needs Screen & System Audio Recording permission, and Accessibility for touch input, for whichever
 terminal app runs it. macOS 15+.
@@ -99,7 +115,8 @@ terminal app runs it. macOS 15+.
 - Native iPad viewer: done (`iPad/`, `USBMux.swift`, `ViewerLink.swift`, `DirectWiFi.swift`; the host
   emits `@links USB|direct Wi-Fi|Wi-Fi` for the menu). Direct Wi-Fi: Bonjour `_portraitdisplay._tcp`
   with `includePeerToPeer`, TLS 1.2 PSK with a key the Mac sends over USB
-  (`~/.portraitdisplay/direct-wifi.key`, iPad Keychain); the browser requires a Wi-Fi interface and
+  (`~/.portraitdisplay/direct-wifi.key` with a stable `mac-id` as the PSK identity; the iPad keeps one
+  key per Mac in Keychain service `PortraitDisplay.pairedMacs`); the browser requires a Wi-Fi interface and
   blocks en0 so it takes awdl0, and waits while a USB viewer is connected. New connections can sit in
   `.waiting` briefly before the peer-to-peer link is up, so it gives them 10 s. Design in `docs/native-viewer-design.md`, feasibility test in `Spike/link/`.
   Measured 2026-10-27: USB 0.31 ms median / 0.94 ms p99, direct Wi-Fi 5.2 ms / 143–268 ms, router

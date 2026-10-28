@@ -20,6 +20,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hostStatus.restart = { [weak self] in self?.host.restart() }
         host.onChange = { [weak self] in self?.hostChanged() }
         host.onFailure = { [weak self] message in self?.showFailure(message) }
+        host.onIPadSize = { [weak self] width, height in
+            // Only with one iPad: two of different sizes would keep restarting each other.
+            guard let self, self.host.viewers == 1, Settings.adoptIPadSize(width: width, height: height) else { return }
+            self.host.restart()
+        }
+        host.onIPadExpires = { UserDefaults.standard.set($0, forKey: Settings.Key.iPadAppExpires) }
         updateIcon()
         if Settings.startOnLaunch { host.start() }
     }
@@ -142,9 +148,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
+        // Only once the native app has connected: Safari users have no app to expire.
+        if let expires = UserDefaults.standard.object(forKey: Settings.Key.iPadAppExpires) as? Date {
+            menu.addItem(.separator())
+            let when = RelativeDateTimeFormatter().localizedString(for: expires, relativeTo: Date())
+            menu.addItem(label(expires < Date() ? "iPad app expired \(when)" : "iPad app expires \(when)"))
+            if Self.installScript != nil { menu.addItem(item("Reinstall iPad App", #selector(reinstallIPadApp))) }
+        }
+
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(showSettings), key: ","))
         menu.addItem(item("Show Log", #selector(showLog)))
+        if FileManager.default.fileExists(atPath: Self.pairingKeyURL.path) {
+            menu.addItem(item("Unpair iPads…", #selector(unpair)))
+        }
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Portrait Display", action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: "q"))
@@ -239,6 +256,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func showLog() {
         NSWorkspace.shared.open(HostProcess.logURL)
+    }
+
+    /// scripts/install-ipad.sh in the checkout this app was built from (make-app.sh records it).
+    private static let installScript: URL? = {
+        guard let source = Bundle.main.object(forInfoDictionaryKey: "PortraitDisplaySource") as? String else { return nil }
+        let script = URL(fileURLWithPath: source).appendingPathComponent("scripts/install-ipad.sh")
+        return FileManager.default.isExecutableFile(atPath: script.path) ? script : nil
+    }()
+
+    /// In Terminal, so the build's progress and any signing problem are visible.
+    @objc private func reinstallIPadApp() {
+        guard let script = Self.installScript,
+              let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { return }
+        NSWorkspace.shared.open([script], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// The host's direct Wi-Fi key (`DirectWiFi.keyURL` in PortraitHost). Every paired iPad has a copy.
+    private static let pairingKeyURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".portraitdisplay/direct-wifi.key")
+
+    /// Deleting the key unpairs every iPad at once: the host makes a new one when it starts and gives
+    /// it to the next iPad that connects over USB.
+    @objc private func unpair() {
+        guard alert("Unpair all iPads?", "They can no longer connect over direct Wi-Fi until they're connected "
+                    + "with the USB cable once, which pairs them again.\n\nOn the iPad, Paired Macs lists "
+                    + "the Macs it can connect to and can forget one.", button: "Unpair") else { return }
+        do {
+            try FileManager.default.removeItem(at: Self.pairingKeyURL)
+        } catch {
+            alert("Couldn't unpair", error.localizedDescription)
+            return
+        }
+        host.restart()   // a running host still has the old key
     }
 
     private func showFailure(_ message: String) {

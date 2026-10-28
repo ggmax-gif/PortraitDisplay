@@ -19,6 +19,10 @@ final class HostProcess {
     var onChange: (() -> Void)?
     /// The host quit by itself with an error. The message is its last "@error" line, if any.
     var onFailure: ((String) -> Void)?
+    /// An iPad app connected and reported its screen size in points (portrait).
+    var onIPadSize: ((Int, Int) -> Void)?
+    /// An iPad app connected and said when its install expires.
+    var onIPadExpires: ((Date) -> Void)?
 
     static let logURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/PortraitDisplay.log")
@@ -48,7 +52,7 @@ final class HostProcess {
         FileManager.default.createFile(atPath: Self.logURL.path, contents: nil)   // new log per run
         log = try? FileHandle(forWritingTo: Self.logURL)
 
-        let arguments = Settings.hostArguments
+        let arguments = Settings.hostArguments()
         let p = Process()
         p.executableURL = hostURL
         p.arguments = ["--status-lines"] + arguments   // first, so even a bad option gets an "@error" line
@@ -125,6 +129,13 @@ final class HostProcess {
         case "stats": stats = value
         case "needs-accessibility": needsAccessibility = true
         case "error": lastError = value
+        case "ipad-size":
+            let size = value.split(separator: " ").compactMap { Int($0) }
+            if size.count == 2 { onIPadSize?(size[0], size[1]) }
+            return
+        case "ipad-expires":
+            if let time = Double(value) { onIPadExpires?(Date(timeIntervalSince1970: time)) }
+            return
         default: return
         }
         onChange?()

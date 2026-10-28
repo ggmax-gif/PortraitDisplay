@@ -1,3 +1,4 @@
+import Shared
 import SwiftUI
 import UIKit
 
@@ -33,6 +34,7 @@ final class ViewerController: UIViewController {
     private let video = VideoView()
     private let message = UILabel()
     private let overlay = UILabel()
+    private let pairedButton = UIButton(configuration: .gray())
     private var stats = ""
     private var linkKind = "USB"
     // Counted per second for the overlay, like the web page's.
@@ -51,9 +53,13 @@ final class ViewerController: UIViewController {
         overlay.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         overlay.numberOfLines = 0
         overlay.isHidden = true
-        for label in [message, overlay] {
-            label.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview(label)
+        pairedButton.configuration?.title = "Paired Macs"
+        pairedButton.configuration?.image = UIImage(systemName: "laptopcomputer")
+        pairedButton.configuration?.imagePadding = 6
+        pairedButton.addAction(UIAction { [weak self] _ in self?.showPairedMacs() }, for: .primaryActionTriggered)
+        for subview in [message, overlay, pairedButton] {
+            subview.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(subview)
         }
         NSLayoutConstraint.activate([
             message.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -62,7 +68,10 @@ final class ViewerController: UIViewController {
             overlay.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
             overlay.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
             overlay.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            pairedButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            pairedButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24),
         ])
+        PairedMacs.removeLegacy()
         video.input.send = { [weak self] text in
             guard let self, self.video.hasPicture else { return }
             self.link.send(text)
@@ -93,7 +102,12 @@ final class ViewerController: UIViewController {
         linkKind = kind
         message.text = "Connected over \(kind). Starting the display…"
         UIApplication.shared.isIdleTimerDisabled = true
-        link.send("hello native" + (VideoView.decodesHEVC ? " hevc" : ""))
+        // The screen size lets the Mac size its virtual display to match (Settings → Match the iPad
+        // app's screen size). The screen rather than the window, so a Stage Manager window doesn't shrink it.
+        let size = view.window?.windowScene?.screen.bounds.size ?? view.bounds.size
+        let w = Int(min(size.width, size.height)), h = Int(max(size.width, size.height))
+        let expires = Self.expires.map { " expires=\(Int($0.timeIntervalSince1970))" } ?? ""
+        link.send("hello native" + (VideoView.decodesHEVC ? " hevc" : "") + " size=\(w)x\(h)" + expires)
     }
 
     private func disconnected() {
@@ -104,10 +118,30 @@ final class ViewerController: UIViewController {
 
     private func showWaiting() {
         message.isHidden = false
-        message.text = PairingKey.stored == nil
+        pairedButton.isHidden = false
+        var text = PairedMacs.all.isEmpty
             ? "Connect the USB cable and start Portrait Display on the Mac."
             : "Start Portrait Display on the Mac. It connects over the USB cable, or directly over Wi-Fi when the cable isn't plugged in."
+        if let expires = Self.expires, expires.timeIntervalSinceNow < 2 * 86400 {
+            let when = RelativeDateTimeFormatter().localizedString(for: expires, relativeTo: Date())
+            text += "\n\nThis install stops opening \(when). Reinstall it from the Mac: Portrait Display menu → Reinstall iPad App."
+        }
+        message.text = text
     }
+
+    /// When this install stops launching: its provisioning profile's expiry, 7 days after installing
+    /// with a free Apple account (a year with a paid one). The Mac's menu shows it too.
+    private static let expires: Date? = {
+        // The profile is a signed CMS message with the plist inside as plain XML.
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url),
+              let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound..<data.endIndex),
+              let plist = try? PropertyListSerialization.propertyList(from: data[start.lowerBound..<end.upperBound],
+                                                                      format: nil) as? [String: Any]
+        else { return nil }
+        return plist["ExpirationDate"] as? Date
+    }()
 
     private func received(_ data: Data, isText: Bool) {
         if isText {
@@ -115,9 +149,9 @@ final class ViewerController: UIViewController {
             if let line = json["stats"] as? String {
                 stats = line
                 updateOverlay()
-            } else if let encoded = json["pair"] as? String, let key = Data(base64Encoded: encoded) {
+            } else if let pairing = Pairing(message: json) {
                 // Sent over USB only: lets this Mac connect over direct Wi-Fi from now on.
-                if PairingKey.store(key) { link.start() }
+                if PairedMacs.save(pairing) { link.start() }
             } else {
                 video.configure(json)
             }
@@ -130,21 +164,35 @@ final class ViewerController: UIViewController {
         video.show(data)
         if video.hasPicture, !hadPicture {
             message.isHidden = true
+            pairedButton.isHidden = true
             showOverlayBriefly()   // as the web page does on connecting: what it is, and the gestures
         }
+    }
+
+    private func showPairedMacs() {
+        var sheet: UIViewController?
+        let list = PairedMacsView(onChange: { [weak self] in self?.link.start() },
+                                  onDone: { sheet?.dismiss(animated: true) })
+        sheet = UIHostingController(rootView: list)
+        present(sheet!, animated: true)
     }
 
     private func toggleOverlay() {
         hideOverlay?.cancel()
         overlay.isHidden.toggle()
+        if video.hasPicture { pairedButton.isHidden = overlay.isHidden }
         updateOverlay()
     }
 
     private func showOverlayBriefly() {
         overlay.isHidden = false
+        pairedButton.isHidden = false
         updateOverlay()
         hideOverlay?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.overlay.isHidden = true }
+        let work = DispatchWorkItem { [weak self] in
+            self?.overlay.isHidden = true
+            if self?.video.hasPicture == true { self?.pairedButton.isHidden = true }
+        }
         hideOverlay = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: work)
     }

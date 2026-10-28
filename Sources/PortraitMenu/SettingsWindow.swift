@@ -39,6 +39,7 @@ struct SettingsView: View {
 
     @AppStorage(Settings.Key.width) private var width = 1024
     @AppStorage(Settings.Key.height) private var height = 1334
+    @AppStorage(Settings.Key.matchIPad) private var matchIPad = true
     @AppStorage(Settings.Key.hiDPI) private var hiDPI = true
     @AppStorage(Settings.Key.fps) private var fps = 60
     @AppStorage(Settings.Key.codec) private var codec = "h264"
@@ -62,7 +63,10 @@ struct SettingsView: View {
                             Text("pt")
                         }
                     }
-                    Text("The iPad overlay (three-finger tap) shows the size that fits it exactly.")
+                    Toggle("Match the iPad app's screen size", isOn: $matchIPad)
+                    Text(matchIPad
+                         ? "The iPad app reports its size when it connects, and the display restarts at that size."
+                         : "In Safari, the iPad overlay (three-finger tap) shows the size that fits it exactly.")
                         .font(.caption).foregroundStyle(.secondary)
                     Toggle("Retina", isOn: $hiDPI)
                     Picker("Frame rate", selection: $fps) {
@@ -139,7 +143,7 @@ struct SettingsView: View {
     /// Reads UserDefaults, which every @AppStorage change above already re-renders for.
     private var needsRestart: Bool {
         guard let running = status.runningArguments else { return false }
-        return Settings.hostArguments != running
+        return Settings.hostArguments() != running
     }
 }
 

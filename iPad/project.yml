@@ -6,10 +6,24 @@ options:
   deploymentTarget:
     iOS: "17.0"
 targets:
+  # The same Sources/Shared the Mac host builds with SwiftPM: framing, direct Wi-Fi TLS and pairing,
+  # gesture decisions (tested by Tests/SharedTests).
+  Shared:
+    type: framework
+    platform: iOS
+    sources: [../Sources/Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danielfung.PortraitDisplay.Shared
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
   PortraitViewer:
     type: application
     platform: iOS
     sources: [PortraitViewer]
+    dependencies:
+      - target: Shared
     info:
       path: PortraitViewer/Info.plist
       properties:

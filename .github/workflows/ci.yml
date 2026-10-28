@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    name: Mac host and menu app
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: swift build -c release
+      # XCTest comes with Xcode, which the runner has; the Command Line Tools alone can't run these.
+      - name: Test
+        run: swift test
+
+  ipad:
+    name: iPad viewer
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Generate the Xcode project
+        run: brew install xcodegen && cd iPad && xcodegen
+      # Unsigned: installing needs a personal team, which CI doesn't have (see iPad/README.md).
+      - name: Build
+        working-directory: iPad
+        run: >
+          xcodebuild -project PortraitViewer.xcodeproj -scheme PortraitViewer
+          -destination generic/platform=iOS -derivedDataPath build -quiet
+          CODE_SIGNING_ALLOWED=NO build

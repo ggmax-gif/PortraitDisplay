@@ -42,6 +42,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>PortraitDisplaySource</key><string>$PWD</string>
 </dict>
 </plist>
 EOF

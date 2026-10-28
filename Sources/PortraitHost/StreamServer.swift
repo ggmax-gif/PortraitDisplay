@@ -167,12 +167,15 @@ final class StreamServer {
               + "\(viewer.decodesHEVC ? "decodes HEVC" : "H.264 only")). Viewers: \(authenticatedCount)")
         Status.emit("viewers", String(authenticatedCount))
         emitLinks()
+        // For the menu bar app's "Match the iPad app's screen size"; after @viewers so it knows the count.
+        if let size = viewer.screenSize { Status.emit("ipad-size", "\(size.width) \(size.height)") }
+        if let expires = viewer.appExpires { Status.emit("ipad-expires", String(expires)) }
         onViewerCount?(authenticatedCount)
         chooseCodec()
         if viewer.link is SocketStreamLink {
             usbLock.withLock { usbViewers += 1 }
             // Over the cable the app is trusted, so it gets the key for direct Wi-Fi now.
-            if config.direct { viewer.sendText(DirectWiFi.pairMessage) }
+            if config.direct { viewer.sendText(DirectWiFi.pairing.message) }
         }
     }
 
@@ -296,6 +299,28 @@ final class StreamServer {
     }
 }
 
+/// An iPad's first message: "hello <token>" from Safari or "hello native" from the app, then
+/// "hevc" if its decoder supports HEVC, and from the app "size=WxH", its screen in portrait points,
+/// and "expires=<Unix time>", when its install stops launching.
+struct Hello {
+    let key: String
+    private(set) var decodesHEVC = false
+    private(set) var size: (width: Int, height: Int)?
+    private(set) var expires: Int?
+
+    init?(_ text: String) {
+        let words = text.split(separator: " ")
+        guard words.count >= 2, words[0] == "hello" else { return nil }
+        key = String(words[1])
+        for word in words.dropFirst(2) {
+            if word == "hevc" { decodesHEVC = true }
+            let numbers = word.hasPrefix("size=") ? word.dropFirst(5).split(separator: "x").compactMap { Int($0) } : []
+            if numbers.count == 2 { size = (numbers[0], numbers[1]) }
+            if word.hasPrefix("expires="), let time = Int(word.dropFirst(8)) { expires = time }
+        }
+    }
+}
+
 /// One connected iPad.
 private final class Viewer {
     /// Frames sent but not yet acknowledged. A few in flight keeps the pipe full on Wi-Fi;
@@ -306,6 +331,8 @@ private final class Viewer {
     unowned let server: StreamServer
     var authenticated = false
     private(set) var decodesHEVC = false
+    private(set) var screenSize: (width: Int, height: Int)?
+    private(set) var appExpires: Int?
     private var inFlight = 0
     private var waitingForKey = true     // deltas are useless until the next keyframe
     private var keyRequested = false
@@ -333,12 +360,11 @@ private final class Viewer {
 
     private func handle(_ text: String) {
         if !authenticated {
-            // "hello <token>" from Safari, "hello native" from the app over USB (a trusted link, so no
-            // token); either plus " hevc" if the iPad's decoder supports HEVC.
-            let words = text.split(separator: " ")
-            let key = link.trusted ? "native" : server.token
-            guard words.count >= 2, words[0] == "hello", words[1] == key else { close(); return }
-            decodesHEVC = words.dropFirst(2).contains("hevc")
+            // The app's links (USB, direct Wi-Fi) are trusted, so it says "native" instead of the token.
+            guard let hello = Hello(text), hello.key == (link.trusted ? "native" : server.token) else { close(); return }
+            decodesHEVC = hello.decodesHEVC
+            screenSize = hello.size
+            appExpires = hello.expires
             authenticated = true
             server.viewerAuthenticated(self)
             resync()

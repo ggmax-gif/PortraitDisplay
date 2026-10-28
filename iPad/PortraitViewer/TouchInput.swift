@@ -1,4 +1,5 @@
 import QuartzCore
+import Shared
 import UIKit
 
 /// Turns touches on the video into the input messages the Mac's InputInjector replays (format in the
@@ -20,16 +21,13 @@ final class TouchInput {
     /// Where the picture is drawn in the view (aspect fit); nil before the first codec config.
     var pictureRect: () -> CGRect? = { nil }
 
-    private static let decideDistance: CGFloat = 10   // points of movement before a gesture is decided
-    private static let swipeDistance: CGFloat = 60
-
     private weak var view: UIView?
     private var fingers: [ObjectIdentifier: CGPoint] = [:]
     private var gesture: Gesture?
     private var momentum: Momentum?
     private var displayLink: CADisplayLink?
     private var pointerDown = false
-    private var lastTap: (time: Double, point: CGPoint)?
+    private var taps = TapSnapper()
 
     private struct Gesture {
         enum Kind { case pending, scroll, zoom, rotate, done }
@@ -40,8 +38,8 @@ final class TouchInput {
         var last: CGPoint
         var samples: [(t: Double, dx: CGFloat, dy: CGFloat)] = []
         // With two fingers down: their distance and angle when the pair formed, and at the last step.
-        var pairStart: (distance: CGFloat, angle: CGFloat)?
-        var pairLast: (distance: CGFloat, angle: CGFloat)?
+        var pairStart: Gestures.Pair?
+        var pairLast: Gestures.Pair?
     }
 
     private struct Momentum {
@@ -77,30 +75,17 @@ final class TouchInput {
     }
 
     /// Distance between the two fingers and the angle of the line through them, when exactly two are down.
-    private func pair() -> (distance: CGFloat, angle: CGFloat)? {
+    private func pair() -> Gestures.Pair? {
         guard fingers.count == 2 else { return nil }
         let p = Array(fingers.values)
-        return (hypot(p[1].x - p[0].x, p[1].y - p[0].y), atan2(p[1].y - p[0].y, p[1].x - p[0].x))
-    }
-
-    /// The smallest signed difference between two angles, in radians.
-    private static func turn(_ from: CGFloat, _ to: CGFloat) -> CGFloat {
-        var d = to - from
-        while d > .pi { d -= 2 * .pi }
-        while d < -.pi { d += 2 * .pi }
-        return d
+        return Gestures.Pair(p[0], p[1])
     }
 
     /// Pressure 0–1 and tilt as fractions of 90°, as Pointer Events report them.
     private func pen(_ touch: UITouch, in view: UIView) -> String {
         let pressure = touch.maximumPossibleForce > 0 && touch.type == .pencil ? touch.force / touch.maximumPossibleForce : 0.5
-        var tiltX: CGFloat = 0, tiltY: CGFloat = 0
-        if touch.type == .pencil {
-            let altitude = max(touch.altitudeAngle, 0.0001), azimuth = touch.azimuthAngle(in: view)
-            tiltX = atan(cos(azimuth) / tan(altitude)) * 180 / .pi
-            tiltY = atan(sin(azimuth) / tan(altitude)) * 180 / .pi
-        }
-        return "\(Self.f(pressure)) \(Self.f(tiltX / 90)) \(Self.f(tiltY / 90))"
+        let tilt = touch.type == .pencil ? Gestures.tilt(altitude: touch.altitudeAngle, azimuth: touch.azimuthAngle(in: view)) : (x: 0, y: 0)
+        return "\(Self.f(pressure)) \(Self.f(tilt.x)) \(Self.f(tilt.y))"
     }
 
     private func isPointer(_ touch: UITouch) -> Bool { touch.type == .pencil || touch.type == .indirectPointer }
@@ -169,45 +154,39 @@ final class TouchInput {
         case .rotate:
             guard let pair = pair(), let last = g.pairLast else { return }
             // UIKit's y axis points down, so its angles turn clockwise; AppKit's rotation is counterclockwise.
-            send?("g r c \(Self.f(-Self.turn(last.angle, pair.angle) * 180 / .pi))")
+            send?("g r c \(Self.f(-Gestures.turn(from: last.angle, to: pair.angle) * 180 / .pi))")
             g.pairLast = pair
         case .done:
             break
         }
     }
 
-    /// The first movement past 10 pt picks the gesture: a scroll (the fingers move together), a pinch
-    /// (their distance changes) or a rotation (their angle changes); with three fingers, a swipe.
+    /// Asks Gestures.decide which gesture the movement so far is, and starts it.
     private func decide(_ g: inout Gesture, centroid c: CGPoint) {
-        let move = hypot(c.x - g.start.x, c.y - g.start.y)
-        if g.fingers >= 3 {
-            guard fingers.count >= 3, move > Self.swipeDistance else { return }
-            let dx = c.x - g.start.x, dy = c.y - g.start.y
-            send?("w " + (abs(dx) > abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down")))
+        let decision = Gestures.decide(fingers: g.fingers, fingersDown: fingers.count, start: g.start, centroid: c,
+                                       pairStart: g.pairStart, pair: pair())
+        guard decision != .undecided, let pos = at(c) else { return }
+        switch decision {
+        case .swipe(let direction):
+            send?("w \(direction.rawValue)")
             g.kind = .done
-            return
-        }
-        var spread: CGFloat = 0, twist: CGFloat = 0
-        if let pair = pair(), let start = g.pairStart {
-            spread = abs(pair.distance - start.distance)
-            twist = abs(Self.turn(start.angle, pair.angle)) * pair.distance / 2   // arc length each finger moved
-        }
-        guard max(move, spread, twist) > Self.decideDistance, let pos = at(c) else { return }
-        if spread >= move && spread >= twist {
+        case .zoom:
             g.kind = .zoom
             send?("g z b \(pos)")
             if let start = g.pairStart, let pair = pair(), start.distance > 0 {
                 send?("g z c \(Self.f(pair.distance / start.distance - 1))")
             }
             g.pairLast = pair()
-        } else if twist > move {
+        case .rotate:
             g.kind = .rotate
             send?("g r b \(pos)")
             g.pairLast = pair()
-        } else {
+        case .scroll:
             g.kind = .scroll
             if let startPos = at(g.start), let d = delta(c.x - g.last.x, c.y - g.last.y) { send?("s b \(startPos) \(d)") }
             g.last = c
+        case .undecided:
+            break
         }
     }
 
@@ -248,17 +227,9 @@ final class TouchInput {
         }
     }
 
-    /// A one-finger tap. The Mac counts a double-click only if both clicks land within 24 pt of each
-    /// other, and a fingertip often misses by more, so a tap soon after and near the last one is sent at
-    /// exactly the same spot. The Mac then sees a double-click (or triple-click) every time.
+    /// A one-finger tap; TapSnapper keeps double and triple taps on the same spot.
     private func tap(at point: CGPoint) {
-        var point = point
-        let now = Self.now
-        if let last = lastTap, now - last.time < 450, hypot(point.x - last.point.x, point.y - last.point.y) < 40 {
-            point = last.point
-        }
-        lastTap = (now, point)
-        if let pos = at(point) { send?("c \(pos) 0") }
+        if let pos = at(taps.place(point, at: Self.now)) { send?("c \(pos) 0") }
     }
 
     /// A mouse or trackpad moving over the picture without a button down.

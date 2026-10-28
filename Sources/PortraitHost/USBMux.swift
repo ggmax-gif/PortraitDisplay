@@ -1,4 +1,5 @@
 import Foundation
+import Shared
 
 /// Finds the iPad on the USB cable through usbmuxd (`/var/run/usbmuxd`, the channel Xcode and Finder
 /// use) and connects to the native viewer app's port whenever the iPad is plugged in and the app is
@@ -8,7 +9,7 @@ import Foundation
 /// followed by an XML plist. `PortNumber` goes in network byte order inside the plist integer.
 /// Measured over this tunnel: 0.31 ms median round trip, 352 Mbit/s (docs/native-viewer-design.md).
 final class USBMux {
-    static let appPort: UInt16 = 20809
+    static let appPort = NativeLink.usbPort
 
     /// A tunnel to the app on `device`. Call `linkClosed(device:)` when it ends.
     var onConnected: ((_ fd: Int32, _ device: Int) -> Void)?

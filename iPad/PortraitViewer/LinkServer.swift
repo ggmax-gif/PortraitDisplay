@@ -1,17 +1,17 @@
 import Foundation
 import Network
+import Shared
 import UIKit
 
 /// Waits for the Mac on two listeners and carries framed messages: `[u32 big-endian length of the
 /// rest][u8 kind: 0 text, 1 binary][payload]`.
 /// - USB: loopback port 20809, where usbmuxd delivers the Mac's connection through the cable.
-/// - Direct Wi-Fi, once paired: a Bonjour service on the peer-to-peer link, with TLS using the key the
-///   Mac sent over USB (PairingKey), so only that Mac can connect.
+/// - Direct Wi-Fi, once paired: a Bonjour service on the peer-to-peer link, with TLS using the keys
+///   paired Macs sent over USB (PairedMacs), so only they can connect.
 /// One connection at a time; a new one replaces the old (so plugging in the cable takes over from
 /// Wi-Fi). Everything runs on the main queue.
 final class LinkServer {
-    static let port: NWEndpoint.Port = 20809
-    static let service = "_portraitdisplay._tcp"
+    static let port = NWEndpoint.Port(rawValue: NativeLink.usbPort)!
 
     /// The link the Mac connected over: "USB" or "direct Wi-Fi".
     var onConnect: ((String) -> Void)?
@@ -34,8 +34,10 @@ final class LinkServer {
         usb.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: Self.port)
         usb.allowLocalEndpointReuse = true
         listen(usb, service: nil, kind: "USB")
-        if let key = PairingKey.stored {
-            listen(PairingKey.parameters(key), service: NWListener.Service(name: UIDevice.current.name, type: Self.service),
+        let paired = PairedMacs.all
+        if !paired.isEmpty {
+            listen(DirectWiFiTLS.parameters(keys: paired.map { ($0.macID, $0.key) }),
+                   service: NWListener.Service(name: UIDevice.current.name, type: NativeLink.bonjourService),
                    kind: "direct Wi-Fi")
         }
     }
@@ -60,12 +62,7 @@ final class LinkServer {
     }
 
     func send(_ data: Data, isText: Bool) {
-        guard let connection else { return }
-        var framed = Data(capacity: 5 + data.count)
-        withUnsafeBytes(of: UInt32(1 + data.count).bigEndian) { framed.append(contentsOf: $0) }
-        framed.append(isText ? 0 : 1)
-        framed.append(data)
-        connection.send(content: framed, completion: .idempotent)
+        connection?.send(content: MessageFrames.frame(data, isText: isText), completion: .idempotent)
     }
 
     func send(_ text: String) {
@@ -99,16 +96,8 @@ final class LinkServer {
 
     private func received(_ data: Data) {
         pending.append(data)
-        while pending.count >= 5 {
-            let length = pending.prefix(4).reduce(0) { $0 << 8 | Int($1) }
-            guard length >= 1, length <= 64 << 20 else { drop(); return }
-            guard pending.count >= 4 + length else { return }
-            let start = pending.startIndex
-            let isText = pending[start + 4] == 0
-            let payload = Data(pending[(start + 5)..<(start + 4 + length)])
-            pending.removeSubrange(start..<(start + 4 + length))
-            onMessage?(payload, isText)
-        }
+        guard let messages = MessageFrames.take(from: &pending, maxLength: MessageFrames.maxFromMac) else { drop(); return }
+        for (payload, isText) in messages { onMessage?(payload, isText) }
     }
 
     private func drop() {

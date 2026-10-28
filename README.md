@@ -1,5 +1,7 @@
 # PortraitDisplay
 
+[![CI](https://github.com/ggmax-gif/PortraitDisplay/actions/workflows/ci.yml/badge.svg)](https://github.com/ggmax-gif/PortraitDisplay/actions/workflows/ci.yml)
+
 Use an iPad as a portrait second screen for a Mac. The iPad shows it in Safari over Wi-Fi, so
 there is no iPad app to install and Sidecar isn't involved. I wrote it because Sidecar on my Mac
 only works in landscape, and I wanted a portrait page for reading documents.
@@ -11,6 +13,28 @@ WebCodecs. Touch and Apple Pencil input on the iPad is sent back and replayed on
 Requirements: a Mac with Apple silicon on macOS 15 or later, Xcode or the Command Line Tools, and
 an iPad on iPadOS 16.4 or later. Both need to be on the same network, and the network has to let
 devices talk to each other.
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph Mac
+        menu["Menu bar app"] -- "starts and stops,<br/>reads status lines" --> host
+        subgraph host["PortraitHost"]
+            display["Virtual display<br/>(private CGVirtualDisplay)"] --> capture["ScreenCaptureKit<br/>changed frames only"]
+            capture --> encoder["VideoToolbox<br/>H.264 or HEVC"]
+            encoder --> server["Stream server"]
+            server --> input["Input injector<br/>(CGEvent)"]
+            input --> display
+        end
+    end
+    server <-- "Wi-Fi via the router,<br/>secure WebSocket" --> safari["Safari page<br/>WebCodecs decoder"]
+    server <-- "USB cable (usbmuxd)<br/>or direct Wi-Fi with TLS" --> app["iPad app<br/>AVSampleBufferDisplayLayer"]
+```
+
+Frames go to the iPad; acknowledgements, decode times, touches and Pencil strokes come back. The
+server sends a frame only when the iPad has acknowledged enough of the earlier ones, so a slow link
+skips frames instead of building up lag.
 
 ## Install the menu bar app
 
@@ -53,7 +77,9 @@ Each run's output is in `~/Library/Logs/PortraitDisplay.log` (Show Log in the me
 Wi-Fi: no network, no certificate, and a round trip of a few milliseconds instead of tens. The menu
 bar app finds it by itself whenever the iPad is plugged in and the app is open, and the menu then says
 "iPad connected (USB)". It also adds Mac trackpad gestures (below). Installing it needs Xcode and your
-Apple ID; `iPad/README.md` has the steps.
+Apple ID. After a one-time setup (`iPad/README.md`), `scripts/install-ipad.sh` builds the app and
+installs it on the iPad. With a free Apple account an install lasts 7 days: the menu shows when it
+runs out, and Reinstall iPad App runs the script again for another 7 days.
 
 After the first USB connection, the app also works without the cable, over direct peer-to-peer Wi-Fi
 (the link AirDrop uses), so it doesn't depend on the router or on the network letting devices reach
@@ -61,6 +87,9 @@ each other. The Mac gives the app a key over the cable, and Wi-Fi connections us
 so no other device can receive your screen and the stream is encrypted. Plugging the cable back in
 switches to USB by itself. Typical round trips are 7 to 10 ms over direct Wi-Fi against about 6 ms
 over USB, with occasional spikes to about 200 ms while the Mac's radio also serves the router.
+
+The app can be paired with several Macs. Its Paired Macs button lists them and forgets one; Unpair
+iPads… in the Mac's menu unpairs every iPad at once, until each is plugged in again.
 
 ## Or run it from Terminal
 
@@ -122,10 +151,14 @@ on the right side of your MacBook in System Settings → Displays → Arrange.
 
 ## Make it fit your iPad
 
-The default, 1024×1334 points, fits an iPad Pro 12.9" running the Home Screen app, whose status bar
-takes 32 of the 1366 points. For any other iPad, or a Safari tab, the overlay shows the size to use,
-for example `--width 820 --height 1180`. Enter those numbers in Settings, or pass them on the command
-line:
+The iPad app reports its screen size when it connects. With "Match the iPad app's screen size" on in
+Settings (the default), the display restarts once at that size, for example 1024×1366 points on an
+iPad Pro 12.9". It only does this while one iPad is connected.
+
+In Safari, the default, 1024×1334 points, fits an iPad Pro 12.9" running the Home Screen app, whose
+status bar takes 32 of the 1366 points. For any other iPad, or a Safari tab, the overlay shows the
+size to use, for example `--width 820 --height 1180`. Enter those numbers in Settings, or pass them
+on the command line:
 
 ```bash
 swift run -c release PortraitHost --width 820 --height 1180
@@ -165,6 +198,14 @@ Other options (`--help` lists them all):
   the App Store.
 - `docs/native-viewer-design.md` is the design of the native iPad app, with measured latency for USB,
   direct peer-to-peer Wi-Fi and the router; `Spike/link/` holds the test that measured them.
+
+## Tests
+
+`swift test` runs the unit tests: message framing, gesture decisions, the direct Wi-Fi TLS handshake
+over loopback, the H.264 parameter-set patch (checked with a separate SPS parser), the HEVC codec
+string, option parsing and the menu's settings. XCTest comes with full Xcode, so if the Command Line
+Tools are selected, run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`.
+GitHub Actions runs them on every push and also builds the iPad app, unsigned.
 
 ## License
 

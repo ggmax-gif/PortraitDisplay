@@ -1,50 +1,45 @@
 import CryptoKit
 import Foundation
 import Network
+import Shared
 
 /// The native iPad app over direct peer-to-peer Wi-Fi (the link AirDrop uses), so the stream skips
 /// the router. Measured on this link: 5.2 ms median round trip, against 12.7 ms through the router
 /// (docs/native-viewer-design.md).
 ///
 /// Security: the Mac would otherwise stream the screen to any nearby device advertising the service.
-/// So the app is paired over the USB cable first: the Mac sends it a random 256-bit key (`pairMessage`),
-/// and Wi-Fi connections use TLS with that pre-shared key (TLS-PSK). A device without the key can't
-/// complete the handshake, and the stream is encrypted over the air.
+/// So the app is paired over the USB cable first: the Mac sends it this Mac's ID, name and a random
+/// 256-bit key (`pairing.message`), and Wi-Fi connections use TLS with that pre-shared key, the ID
+/// being its identity (Shared/DirectWiFiTLS.swift). A device without the key can't complete the
+/// handshake, and the stream is encrypted over the air. Deleting the key file unpairs every iPad;
+/// the next USB connection pairs again.
 enum DirectWiFi {
-    static let service = "_portraitdisplay._tcp"
+    private static let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".portraitdisplay")
+    static let keyURL = folder.appendingPathComponent("direct-wifi.key")
 
-    /// The key, created on first use in ~/.portraitdisplay/direct-wifi.key (readable only by you).
-    static let key: Data = {
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".portraitdisplay")
-        let url = dir.appendingPathComponent("direct-wifi.key")
-        if let saved = try? Data(contentsOf: url), saved.count == 32 { return saved }
-        let fresh = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: url.path, contents: fresh, attributes: [.posixPermissions: 0o600])
-        return fresh
+    /// This Mac's pairing: created on first use, kept in ~/.portraitdisplay (readable only by you).
+    static let pairing: Pairing = {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let key = saved(keyURL, count: 32) ?? create(keyURL, SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) })
+        // A stable ID, so pairing again (after unpairing) replaces this Mac's entry on the iPad.
+        let idURL = folder.appendingPathComponent("mac-id")
+        let id = saved(idURL, count: 36).flatMap { String(data: $0, encoding: .utf8) }
+            ?? String(decoding: create(idURL, Data(UUID().uuidString.utf8)), as: UTF8.self)
+        return Pairing(macID: id, macName: Host.current().localizedName ?? "Mac", key: key)
     }()
 
-    /// Sent to the app over USB (a trusted link) so it can accept this Mac over Wi-Fi.
-    static var pairMessage: Data {
-        (try? JSONSerialization.data(withJSONObject: ["pair": key.base64EncodedString()])) ?? Data()
+    static func parameters() -> NWParameters {
+        DirectWiFiTLS.parameters(keys: [(pairing.macID, pairing.key)])
     }
 
-    /// TCP with TLS 1.2 PSK (the iPad app builds the same), allowed onto the peer-to-peer link.
-    static func parameters() -> NWParameters {
-        let tls = NWProtocolTLS.Options()
-        let options = tls.securityProtocolOptions
-        let identity = Data("PortraitDisplay".utf8)
-        sec_protocol_options_add_pre_shared_key(options,
-                                                key.withUnsafeBytes { DispatchData(bytes: $0) } as __DispatchData,
-                                                identity.withUnsafeBytes { DispatchData(bytes: $0) } as __DispatchData)
-        sec_protocol_options_append_tls_ciphersuite(options, tls_ciphersuite_t(rawValue: UInt16(TLS_PSK_WITH_AES_128_GCM_SHA256))!)
-        sec_protocol_options_set_min_tls_protocol_version(options, .TLSv12)
-        sec_protocol_options_set_max_tls_protocol_version(options, .TLSv12)
-        let tcp = NWProtocolTCP.Options()
-        tcp.noDelay = true
-        let parameters = NWParameters(tls: tls, tcp: tcp)
-        parameters.includePeerToPeer = true
-        return parameters
+    private static func saved(_ url: URL, count: Int) -> Data? {
+        guard let data = try? Data(contentsOf: url), data.count == count else { return nil }
+        return data
+    }
+
+    private static func create(_ url: URL, _ data: Data) -> Data {
+        FileManager.default.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600])
+        return data
     }
 }
 
@@ -82,7 +77,7 @@ final class DirectBrowser {
     }
 
     private func browse() {
-        let browser = NWBrowser(for: .bonjour(type: DirectWiFi.service, domain: nil), using: Self.directParameters())
+        let browser = NWBrowser(for: .bonjour(type: NativeLink.bonjourService, domain: nil), using: Self.directParameters())
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             self?.found = Set(results.map(\.endpoint))
             self?.tryConnect()

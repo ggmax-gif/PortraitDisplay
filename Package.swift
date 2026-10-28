@@ -15,9 +15,16 @@ let package = Package(
                 .linkedFramework("CoreGraphics"),
             ]
         ),
+        // Shared with the iPad app (iPad/project.yml builds the same folder as a framework): message
+        // framing, the direct Wi-Fi TLS setup and pairing, and the gesture decisions.
+        .target(
+            name: "Shared",
+            path: "Sources/Shared",
+            linkerSettings: [.linkedFramework("Network")]
+        ),
         .executableTarget(
             name: "PortraitHost",
-            dependencies: ["CGVirtualDisplayPrivate"],
+            dependencies: ["CGVirtualDisplayPrivate", "Shared"],
             path: "Sources/PortraitHost",
             linkerSettings: [
                 .linkedFramework("ScreenCaptureKit"),
@@ -38,5 +45,10 @@ let package = Package(
                 .linkedFramework("SwiftUI"),
             ]
         ),
+        // Run with Xcode's toolchain (the Command Line Tools have no XCTest):
+        // DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+        .testTarget(name: "SharedTests", dependencies: ["Shared"], path: "Tests/SharedTests"),
+        .testTarget(name: "PortraitHostTests", dependencies: ["PortraitHost"], path: "Tests/PortraitHostTests"),
+        .testTarget(name: "PortraitMenuTests", dependencies: ["PortraitMenu"], path: "Tests/PortraitMenuTests"),
     ]
 )
