@@ -23,6 +23,15 @@ struct Config {
     var streamWidth: Int { Config.even(Double(widthPoints) * streamScale) }
     var streamHeight: Int { Config.even(Double(heightPoints) * streamScale) }
 
+    /// With the iPad held sideways, width and height swap.
+    func points(landscape: Bool) -> (width: Int, height: Int) {
+        landscape ? (heightPoints, widthPoints) : (widthPoints, heightPoints)
+    }
+
+    func streamSize(landscape: Bool) -> (width: Int, height: Int) {
+        landscape ? (streamHeight, streamWidth) : (streamWidth, streamHeight)
+    }
+
     private static func even(_ value: Double) -> Int {
         let v = Int(value.rounded())
         return max(2, v - (v % 2))

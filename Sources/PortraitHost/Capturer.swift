@@ -25,6 +25,7 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
     // Main queue only: the running stream, and the display it should capture (nil once stopped).
     private var stream: SCStream?
     private var target: CGDirectDisplayID?
+    private var size: (width: Int, height: Int)
     private let sampleQueue = DispatchQueue(label: "portrait.capture")
     // All below only touched on sampleQueue.
     private var latest: CVPixelBuffer?
@@ -44,6 +45,17 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
     init(config: Config, encoder: VideoEncoder) {
         self.config = config
         self.encoder = encoder
+        size = (config.streamWidth, config.streamHeight)
+    }
+
+    /// Main queue. A running capture changes size in place (the display turned); the encoder
+    /// follows the frames' size by itself.
+    func resize(width: Int, height: Int) {
+        guard size != (width, height) else { return }
+        size = (width, height)
+        stream?.updateConfiguration(configuration()) { error in
+            if let error { print("Couldn't resize the screen capture: \(error.localizedDescription)") }
+        }
     }
 
     /// Keyframe for a new or recovering viewer. Re-encodes the last frame, since a still screen
@@ -87,18 +99,7 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
 
     private func capture(_ display: SCDisplay, completion: @escaping (Error?) -> Void) {
         let filter = SCContentFilter(display: display, excludingWindows: [])
-        let sc = SCStreamConfiguration()
-        sc.width = config.streamWidth
-        sc.height = config.streamHeight
-        sc.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(config.fps))
-        // Hand the encoder YUV directly, with the same BT.709 matrix the encoder tags the stream with.
-        sc.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-        sc.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
-        sc.colorSpaceName = CGColorSpace.sRGB
-        sc.showsCursor = true
-        sc.queueDepth = 5
-
-        let stream = SCStream(filter: filter, configuration: sc, delegate: self)
+        let stream = SCStream(filter: filter, configuration: configuration(), delegate: self)
         do {
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         } catch {
@@ -115,6 +116,20 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
                 completion(error)
             }
         }
+    }
+
+    private func configuration() -> SCStreamConfiguration {
+        let sc = SCStreamConfiguration()
+        sc.width = size.width
+        sc.height = size.height
+        sc.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(config.fps))
+        // Hand the encoder YUV directly, with the same BT.709 matrix the encoder tags the stream with.
+        sc.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        sc.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
+        sc.colorSpaceName = CGColorSpace.sRGB
+        sc.showsCursor = true
+        sc.queueDepth = 5
+        return sc
     }
 
     /// Call on the main queue. Capture has to stop before its display is removed; `completion`

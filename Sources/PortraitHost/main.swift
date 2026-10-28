@@ -84,6 +84,7 @@ if config.direct {
     direct.start()
 }
 server.onViewerCount = { count in DispatchQueue.main.async { displays.viewersChanged(count) } }
+server.onOrientation = { degrees in DispatchQueue.main.async { displays.setOrientation(degrees) } }
 
 if config.input {
     let injector = InputInjector()

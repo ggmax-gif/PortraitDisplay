@@ -88,6 +88,10 @@ so no other device can receive your screen and the stream is encrypted. Plugging
 switches to USB by itself. Typical round trips are 7 to 10 ms over direct Wi-Fi against about 6 ms
 over USB, with occasional spikes to about 200 ms while the Mac's radio also serves the router.
 
+Turn the iPad and the display turns with it: held sideways, the Mac's display becomes landscape
+(1366×1024 on an iPad Pro 12.9"), and upright or upside down it's portrait. Windows on it stay there.
+Safari always gets the portrait display.
+
 The app can be paired with several Macs. Its Paired Macs button lists them and forgets one; Unpair
 iPads… in the Mac's menu unpairs every iPad at once, until each is plugged in again.
 

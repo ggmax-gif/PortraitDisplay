@@ -10,6 +10,12 @@ Not for the App Store, because it uses a private API.
   private `CGVirtualDisplay*` classes (in CoreGraphics), with NS_SWIFT_NAME annotations.
 - `VirtualDisplay.swift`: creates the portrait virtual monitor "Portrait iPad", HiDPI by default.
   Picks the "looks like W×H" Retina mode with the public `CGDisplaySetDisplayMode`.
+  Landscape (iPad app at 90° / 270°, `DisplayController.setOrientation`): `applySettings` again with
+  swapped modes on the same display, so the ID and its windows stay; max pixels are square to fit both.
+  Probed 2026-10-28: the settings' `rotation` property is accepted but ignored, and landscape modes
+  listed next to portrait ones are marked unusable (`CGDisplaySetDisplayMode` → 1001). The capture
+  then resizes in place (`SCStream.updateConfiguration`) and the encoder rebuilds its session when the
+  frame size changes. 180° needs nothing: the app turns its own picture, and UIKit its touch coordinates.
 - `Capturer.swift`: ScreenCaptureKit captures that display (changed frames only, 420v YUV) and feeds
   the encoder. It only encodes when the iPad has room (`StreamServer.freeSlots`); otherwise the newest
   frame waits. Skipping before encoding is free; skipping after costs a keyframe (that made video stutter). 0.3 s after the screen goes
@@ -32,10 +38,10 @@ Not for the App Store, because it uses a private API.
   for the current IPs is issued with `/usr/bin/openssl` each run and loaded in memory only.
 - `StreamServer.swift`: Network.framework. HTTP on `--port` (default 8080) serves the setup page and
   the CA. HTTPS on port+1 serves the viewer page and manifest. Secure WebSocket on port+2: client sends
-  `hello <token>` (`Hello` parses it; the native app sends `native`, plus `size=WxH` and `expires=<unix>`,
+  `hello <token>` (`Hello` parses it; the native app sends `native`, plus `size=WxH`, `orientation=<deg>` and `expires=<unix>`,
   re-emitted as `@ipad-size` / `@ipad-expires`), server sends codec config (JSON text) before keyframes and frames as binary
   (1-byte keyframe flag + AVCC). Client sends `ack` per frame, `key` after a decoder error, `d <ms>`
-  (decode time) and input messages (`c`/`p`/`s …`). At most 4 unacked frames per iPad.
+  (decode time), `o <deg>` when the app turns, and input messages (`c`/`p`/`s …`). At most 4 unacked frames per iPad.
   Every 2 s while frames flow, a stats line (capture, encode, sent/skipped, Mbit/s, ack round trip,
   iPad decode) is printed and shown on the overlay. Use it before guessing at performance.
   Its "encoded in N ms" is almost all VideoToolbox: everything after the encoder's callback (copy,

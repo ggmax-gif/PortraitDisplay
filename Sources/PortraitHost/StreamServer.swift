@@ -19,6 +19,7 @@ final class StreamServer {
     var onViewerGone: (() -> Void)?    // an authenticated iPad disconnected
     var onViewerCount: ((Int) -> Void)?   // authenticated iPads, after each connect / disconnect
     var onCodecWanted: ((VideoCodec) -> Void)?
+    var onOrientation: ((Int) -> Void)?   // the iPad app turned: degrees from portrait
     private var wantedCodec: VideoCodec
     private let slotsLock = NSLock()
     private var slots = 0              // guarded by slotsLock
@@ -135,6 +136,7 @@ final class StreamServer {
     }
 
     fileprivate func input(_ message: String) { onInput?(message) }
+    fileprivate func orientationChanged(_ degrees: Int) { onOrientation?(degrees) }
 
     private func acceptViewer(_ connection: NWConnection) {
         accept(WebSocketLink(connection: connection, logTLSFailure: tlsFailureLogger(connection)))
@@ -170,6 +172,8 @@ final class StreamServer {
         // For the menu bar app's "Match the iPad app's screen size"; after @viewers so it knows the count.
         if let size = viewer.screenSize { Status.emit("ipad-size", "\(size.width) \(size.height)") }
         if let expires = viewer.appExpires { Status.emit("ipad-expires", String(expires)) }
+        // Before the count, so an on-demand display is created the right way round.
+        if let degrees = viewer.orientation { onOrientation?(degrees) }
         onViewerCount?(authenticatedCount)
         chooseCodec()
         if viewer.link is SocketStreamLink {
@@ -301,11 +305,12 @@ final class StreamServer {
 
 /// An iPad's first message: "hello <token>" from Safari or "hello native" from the app, then
 /// "hevc" if its decoder supports HEVC, and from the app "size=WxH", its screen in portrait points,
-/// and "expires=<Unix time>", when its install stops launching.
+/// "orientation=<degrees>" (see `Orientation`) and "expires=<Unix time>", when its install stops launching.
 struct Hello {
     let key: String
     private(set) var decodesHEVC = false
     private(set) var size: (width: Int, height: Int)?
+    private(set) var orientation: Int?
     private(set) var expires: Int?
 
     init?(_ text: String) {
@@ -317,6 +322,7 @@ struct Hello {
             let numbers = word.hasPrefix("size=") ? word.dropFirst(5).split(separator: "x").compactMap { Int($0) } : []
             if numbers.count == 2 { size = (numbers[0], numbers[1]) }
             if word.hasPrefix("expires="), let time = Int(word.dropFirst(8)) { expires = time }
+            if word.hasPrefix("orientation="), let degrees = Int(word.dropFirst(12)) { orientation = degrees }
         }
     }
 }
@@ -333,6 +339,7 @@ private final class Viewer {
     private(set) var decodesHEVC = false
     private(set) var screenSize: (width: Int, height: Int)?
     private(set) var appExpires: Int?
+    private(set) var orientation: Int?
     private var inFlight = 0
     private var waitingForKey = true     // deltas are useless until the next keyframe
     private var keyRequested = false
@@ -365,6 +372,7 @@ private final class Viewer {
             decodesHEVC = hello.decodesHEVC
             screenSize = hello.size
             appExpires = hello.expires
+            orientation = hello.orientation
             authenticated = true
             server.viewerAuthenticated(self)
             resync()
@@ -382,6 +390,7 @@ private final class Viewer {
             resync()
         default:
             if text.hasPrefix("d ") { decodeMs = String(text.dropFirst(2)); return }
+            if text.hasPrefix("o "), let degrees = Int(text.dropFirst(2)) { server.orientationChanged(degrees); return }
             if ["c ", "p ", "s ", "g ", "w "].contains(where: text.hasPrefix) { server.input(text) }
         }
     }

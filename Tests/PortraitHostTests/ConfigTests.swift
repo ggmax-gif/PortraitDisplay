@@ -70,3 +70,23 @@ extension HelloTests {
         XCTAssertNil(Hello("hello native expires=soon")?.expires)
     }
 }
+
+final class OrientationTests: XCTestCase {
+    func testQuarterTurnsAlternatePortraitAndLandscape() {
+        XCTAssertEqual([0, 90, 180, 270, 360, -90].map { Orientation.isLandscape(degrees: $0) },
+                       [false, true, false, true, false, true])
+        XCTAssertNil(Orientation.isLandscape(degrees: 45))
+    }
+
+    func testLandscapeSwapsWidthAndHeight() {
+        let c = Config.parse(["--width", "1024", "--height", "1366"])
+        XCTAssertEqual([c.points(landscape: true).width, c.points(landscape: true).height], [1366, 1024])
+        XCTAssertEqual([c.streamSize(landscape: true).width, c.streamSize(landscape: true).height], [2732, 2048])
+        XCTAssertEqual([c.streamSize(landscape: false).width, c.streamSize(landscape: false).height], [2048, 2732])
+    }
+
+    func testTheAppSaysWhichWayItIsTurned() {
+        XCTAssertEqual(Hello("hello native size=1024x1366 orientation=270")?.orientation, 270)
+        XCTAssertNil(Hello("hello 3f9a1c2b7d4e")?.orientation)
+    }
+}

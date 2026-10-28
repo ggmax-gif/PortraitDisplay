@@ -23,15 +23,16 @@ struct CodecConfig: Equatable {
 }
 
 /// Hardware H.264 or HEVC encoder (VideoToolbox) tuned for low latency: no B-frames, no frame delay,
-/// keyframes only on request (new viewer, decoder error, viewer fell behind, codec switch).
+/// keyframes only on request (new viewer, decoder error, viewer fell behind, codec switch) and when
+/// the frames change size (the display turned).
 final class VideoEncoder {
     var onConfig: ((CodecConfig) -> Void)?
     var onFrame: ((EncodedFrame) -> Void)?
 
     private var session: VTCompressionSession   // only touched in encode(), on the capturer's queue
     private var sessionCodec: VideoCodec        // same
-    private let width: Int
-    private let height: Int
+    private var width: Int                      // same: the session's size
+    private var height: Int
     private let fps: Int
     private let bitrateMbps: Double
     private let lock = NSLock()
@@ -121,11 +122,14 @@ final class VideoEncoder {
     /// `completion` runs once the frame has been encoded (or dropped by the encoder).
     func encode(_ pixelBuffer: CVPixelBuffer, time: CMTime, completion: @escaping () -> Void) {
         lock.lock()
-        let key = forceKey
+        var key = forceKey
         forceKey = false
         let wanted = wantedCodec
         lock.unlock()
-        if wanted != sessionCodec { replaceSession(with: wanted) }
+        let w = CVPixelBufferGetWidth(pixelBuffer), h = CVPixelBufferGetHeight(pixelBuffer)
+        if wanted != sessionCodec || w != width || h != height {
+            if replaceSession(codec: wanted, width: w, height: h) { key = true }
+        }
         let options = key ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         let finish = Once(completion)
 
@@ -146,18 +150,21 @@ final class VideoEncoder {
         }
     }
 
-    private func replaceSession(with codec: VideoCodec) {
+    /// A new session starts with a keyframe and, through `handle`, a new codec config.
+    private func replaceSession(codec: VideoCodec, width: Int, height: Int) -> Bool {
         do {
             let new = try Self.makeSession(codec: codec, width: width, height: height, fps: fps, bitrateMbps: bitrateMbps)
             // Emits the old session's last frames (and runs their completions) before the switch.
             VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
             VTCompressionSessionInvalidate(session)
             session = new
-            sessionCodec = codec
-            print("Encoder: now \(codec.name).")
+            print("Encoder: now \(codec.name) \(width)×\(height).")
+            (sessionCodec, self.width, self.height) = (codec, width, height)
+            return true
         } catch {
-            print("\(error.localizedDescription) Staying with \(sessionCodec.name).")
+            print("\(error.localizedDescription) Staying with \(sessionCodec.name) \(self.width)×\(self.height).")
             lock.lock(); wantedCodec = sessionCodec; lock.unlock()
+            return false
         }
     }
 

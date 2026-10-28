@@ -14,6 +14,7 @@ import IOKit.pwr_mgt
 /// can idle off while you read on the iPad).
 final class DisplayController {
     var onDisplay: ((CGDirectDisplayID?) -> Void)?   // the new display, or nil once it's gone
+    private var landscape = false   // the iPad app is held sideways
 
     private enum State { case off, on(VirtualDisplay), stopping }
     private var state = State.off
@@ -83,8 +84,30 @@ final class DisplayController {
         }
     }
 
+    /// The iPad app turned to `degrees` from portrait. At 90 and 270 the display turns landscape. At
+    /// 180 it stays portrait: the app turns its own picture, so upside down looks the same to the Mac.
+    func setOrientation(_ degrees: Int) {
+        guard let landscape = Orientation.isLandscape(degrees: degrees), landscape != self.landscape else { return }
+        self.landscape = landscape
+        guard case .on(let display) = state else { return }   // show() uses it
+        display.setLandscape(landscape)
+        applyMode(of: display, attempt: 0)
+    }
+
+    /// macOS lists the new modes a moment after the settings change, then the capture follows.
+    private func applyMode(of display: VirtualDisplay, attempt: Int) {
+        guard case .on(let current) = state, current === display, display.landscape == landscape else { return }
+        guard display.selectPreferredMode() || attempt >= 30 else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self.applyMode(of: display, attempt: attempt + 1) }
+            return
+        }
+        print("Virtual display turned \(landscape ? "landscape" : "portrait"): \(display.currentModeDescription)")
+        let size = config.streamSize(landscape: landscape)
+        capturer.resize(width: size.width, height: size.height)
+    }
+
     private func show() {
-        guard let display = VirtualDisplay(config: config) else {
+        guard let display = VirtualDisplay(config: config, landscape: landscape) else {
             fail("macOS refused to create the virtual display.")
         }
         state = .on(display)
@@ -95,6 +118,8 @@ final class DisplayController {
             guard case .on(let current) = self.state, current === display else { return }
             display.selectPreferredMode()
             print("Virtual display \"\(self.config.name)\": \(display.currentModeDescription)")
+            let size = self.config.streamSize(landscape: display.landscape)
+            self.capturer.resize(width: size.width, height: size.height)
             self.startCapture(retries: 0)   // a first failure is usually permission: report it at once
         }
     }
@@ -110,8 +135,9 @@ final class DisplayController {
             guard generation == self.captureGeneration else { return }
             guard let error else {
                 let codec = self.config.codec == .hevc ? "HEVC (H.264 for iPads without it)" : "H.264"
+                let size = self.config.streamSize(landscape: display.landscape)
                 print("Capturing at up to \(self.config.fps) fps, \(codec) "
-                      + "\(self.config.streamWidth)×\(self.config.streamHeight) px, max \(Int(self.config.bitrateMbps)) Mbit/s.")
+                      + "\(size.width)×\(size.height) px, max \(Int(self.config.bitrateMbps)) Mbit/s.")
                 return
             }
             if self.screensAsleep { self.waitForScreens(); return }
@@ -176,6 +202,7 @@ final class DisplayController {
         onDisplay?(nil)
         capturer.stop {
             self.state = .off   // releases the VirtualDisplay, which removes it
+            self.landscape = false   // a Safari viewer next time wouldn't say
             print("Virtual display removed (no iPad for \(self.config.lingerSeconds) s).")
             Status.emit("display", "off")
             self.update()       // an iPad may have connected while capture was stopping
@@ -193,5 +220,15 @@ final class DisplayController {
         """)
         Status.emit("error", "capture: \(error.localizedDescription)")
         exit(1)
+    }
+}
+
+/// The iPad app's interface orientation, in degrees from portrait (UIKit's landscapeRight is 90,
+/// portraitUpsideDown 180, landscapeLeft 270).
+enum Orientation {
+    /// Nil for anything that isn't a quarter turn.
+    static func isLandscape(degrees: Int) -> Bool? {
+        guard degrees % 90 == 0 else { return nil }
+        return (degrees / 90) % 2 != 0
     }
 }

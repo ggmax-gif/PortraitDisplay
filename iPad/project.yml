@@ -32,7 +32,9 @@ targets:
         UIRequiresFullScreen: true
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: false
-        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown]
+        # All four: the Mac turns its display landscape when the app is (Sources/PortraitHost/DisplayController.swift).
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown,
+                                               UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         NSLocalNetworkUsageDescription: Lets your paired Mac connect over Wi-Fi when the USB cable isn't plugged in.
         NSBonjourServices: [_portraitdisplay._tcp]
     settings:

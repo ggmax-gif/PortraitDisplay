@@ -37,6 +37,7 @@ final class ViewerController: UIViewController {
     private let pairedButton = UIButton(configuration: .gray())
     private var stats = ""
     private var linkKind = "USB"
+    private var saidHello = false   // the Mac closes a link whose first message isn't the hello
     // Counted per second for the overlay, like the web page's.
     private var frames = 0, bytes = 0, rate = 0, kbps = 0
     private var meter: Timer?
@@ -107,10 +108,33 @@ final class ViewerController: UIViewController {
         let size = view.window?.windowScene?.screen.bounds.size ?? view.bounds.size
         let w = Int(min(size.width, size.height)), h = Int(max(size.width, size.height))
         let expires = Self.expires.map { " expires=\(Int($0.timeIntervalSince1970))" } ?? ""
-        link.send("hello native" + (VideoView.decodesHEVC ? " hevc" : "") + " size=\(w)x\(h)" + expires)
+        link.send("hello native" + (VideoView.decodesHEVC ? " hevc" : "") + " size=\(w)x\(h)"
+                  + " orientation=\(orientation)" + expires)
+        saidHello = true
+    }
+
+    /// Degrees from portrait, as the Mac expects them: it turns its display landscape at 90 and 270.
+    /// The picture itself turns with this app's interface, so touches need no remapping.
+    private var orientation: Int {
+        switch view.window?.windowScene?.interfaceOrientation {
+        case .landscapeRight: return 90
+        case .portraitUpsideDown: return 180
+        case .landscapeLeft: return 270
+        default: return 0
+        }
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self else { return }
+            if self.saidHello { self.link.send("o \(self.orientation)") }
+            self.updateOverlay()
+        }
     }
 
     private func disconnected() {
+        saidHello = false
         video.clear()
         UIApplication.shared.isIdleTimerDisabled = false
         showWaiting()
@@ -204,7 +228,7 @@ final class ViewerController: UIViewController {
         let stream = video.videoSize.map { "\(video.codecName) \(Int($0.width))×\(Int($0.height))" } ?? "–"
         let speed = kbps >= 1000 ? String(format: "%.1f Mbit/s", Double(kbps) / 1000) : "\(kbps) kbit/s"
         overlay.text = [
-            "Connected over \(linkKind)",
+            "Connected over \(linkKind) · turned \(orientation)°",
             "\(rate) updates/s · \(speed) · \(stream)",
             stats.isEmpty ? nil : stats,
             "This screen: \(w)×\(h) pt → in the Mac's Settings, set Size to \(w) × \(h)",

@@ -9,7 +9,8 @@ Status: video, touch, Pencil and trackpad-style gestures (double tap, pinch, rot
 swipes) work, over the cable or, after one USB connection to pair, over direct peer-to-peer Wi-Fi.
 The main README lists the gestures. The app tells the Mac its screen size, so the display can match
 it, and when its install expires, which the Mac's menu shows. Paired Macs lists the Macs it holds a
-key for (one per Mac) and forgets one.
+key for (one per Mac) and forgets one. It turns with the iPad, and tells the Mac, which makes its
+display landscape at 90° and 270°.
 
 ## Build and install
 
