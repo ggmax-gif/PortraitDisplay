@@ -20,6 +20,26 @@ For Safari, an iPad on iPadOS 16.4 or later, on the same network as the Mac, and
 devices talk to each other. For the app, iPadOS 17 or later, full Xcode and an Apple ID (a free one
 works).
 
+## Features
+
+- A portrait display for your Mac at full Retina sharpness, sized to match the iPad (1024×1366 points
+  on a 12.9-inch iPad Pro).
+- Turn the iPad and the display turns with it: landscape at 90° and 270°, portrait upright or upside
+  down (iPad app).
+- USB-C cable with frame round trips of about 6 ms, or direct peer-to-peer Wi-Fi when unplugged, with
+  no router in between (iPad app).
+- Direct Wi-Fi is encrypted with a key the Mac gives the app over the cable. One iPad can pair with
+  several Macs.
+- Apple Pencil with pressure and tilt, finger taps, scrolling with momentum, and two-finger tap for
+  right-click.
+- Mac trackpad gestures: double tap, pinch to zoom, rotate, and three-finger swipes for Mission
+  Control and Spaces (iPad app).
+- Or no app at all: Safari on the same Wi-Fi, added to the Home Screen.
+- A menu bar app with Start and Stop, a QR code for the iPad link and live stats. The display appears
+  when the iPad connects and goes away after it leaves.
+- Hardware H.264 or HEVC, and only changed frames are sent, so a still screen uses almost no network.
+- MIT licensed, no third-party dependencies, and 42 unit tests that run on every push.
+
 ## How it works
 
 ```mermaid
