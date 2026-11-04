@@ -61,10 +61,23 @@ xcodegen -q
 if build; then
     rm -f "$stash"/*   # replaced by the new profile
 else
-    # Fetching needs Xcode's Apple ID sign-in, which can lapse; the old profile still builds.
+    # Fetching needs Xcode's Apple ID sign-in, which can lapse. The old profile still builds, but only
+    # until it expires (the date is ISO 8601 in UTC, so the strings compare in time order).
+    now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    valid=false
+    for profile in "$stash"/*.mobileprovision; do
+        [ -f "$profile" ] || continue
+        expires=$(security cms -D -i "$profile" 2>/dev/null | plutil -extract ExpirationDate raw -o - - 2>/dev/null || true)
+        if [[ "$expires" > "$now" ]]; then valid=true; fi
+    done
+    if ! $valid; then
+        echo "Couldn't get a new profile from Apple, and there's no unexpired one to build with."
+        echo "Sign in again in Xcode → Settings → Accounts, then run this again."
+        exit 1
+    fi
     echo "Couldn't get a new profile from Apple, so the expiry date won't move. If this keeps happening,"
     echo "sign in again in Xcode → Settings → Accounts. Building with the current profile…"
-    mv "$stash"/* "$profiles/" 2>/dev/null || exit 1
+    mv "$stash"/* "$profiles/"
     build
 fi
 app=build/Build/Products/Debug-iphoneos/PortraitViewer.app

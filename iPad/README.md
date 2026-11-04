@@ -26,8 +26,8 @@ It reads your team ID from your Apple Development certificate, builds, installs 
 iPad and opens the app. Run it again before the 7 days are up (the Mac's menu has Reinstall iPad App
 for this). Xcode keeps using its cached provisioning profile until that expires, so reinstalling alone
 wouldn't move the date; the script sets the cached one aside so Xcode fetches a new one. If Xcode can't
-reach your Apple ID, it builds with the old profile and says the date didn't move: sign in again in
-Xcode → Settings → Accounts.
+reach your Apple ID, it builds with the old profile while that's still valid and says the date didn't
+move; once it has expired, it stops. Either way, sign in again in Xcode → Settings → Accounts.
 
 By hand, with your team ID:
 

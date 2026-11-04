@@ -94,8 +94,8 @@ Not for the App Store, because it uses a private API.
 - `scripts/install-ipad.sh`: team ID from the Apple Development certificate's OU, first physical iPad from
   `devicectl list devices` (`properties.hardware`; the old top-level fields are deprecated). Xcode reuses a
   cached profile until it expires, so the script moves this app's profile aside to get a new 7-day one;
-  if fetching fails (seen 2026-10-28: "missing Xcode-Username", then "No Accounts"), it moves it back
-  and builds with it.
+  if fetching fails (seen 2026-10-28: "missing Xcode-Username", then "No Accounts"; fixed by signing in
+  again in Xcode), it moves it back and builds with it, unless it has expired: then it stops and says so.
 - Tests (`Tests/`): XCTest, so `swift test` needs Xcode's toolchain (`DEVELOPER_DIR`), not the CLT.
   `CodecTests` checks the SPS patch with its own spec-following parser. CI: `.github/workflows/ci.yml`
   on `macos-26` (build, test, unsigned iPad build).
