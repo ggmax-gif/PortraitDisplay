@@ -66,7 +66,11 @@ final class VideoEncoder {
         // already says sps_max_num_reorder_pics = 0.
         let profile = codec == .hevc ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_High_AutoLevel
         var properties: [(CFString, CFTypeRef)] = [
-            (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue),
+            // Off on purpose. In real-time mode the hardware encoder sometimes switches, ~7 s into a
+            // steady stream, to stretching each frame towards the frame interval: 11 → 27 ms at 30 fps,
+            // ~20 ms at 50 fps, a step and then flat, measured 2026-11-07 in a separate benchmark too.
+            // With RealTime off it stays at ~11 ms (45 s at 30 and 60 fps). Not every run gets throttled.
+            (kVTCompressionPropertyKey_RealTime, kCFBooleanFalse),
             (kVTCompressionPropertyKey_ProfileLevel, profile),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),
             (kVTCompressionPropertyKey_ExpectedFrameRate, fps as CFNumber),

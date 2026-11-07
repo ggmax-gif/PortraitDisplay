@@ -20,7 +20,7 @@ Not for the App Store, because it uses a private API.
   the encoder. It only encodes when the iPad has room (`StreamServer.freeSlots`); otherwise the newest
   frame waits. Skipping before encoding is free; skipping after costs a keyframe (that made video stutter). 0.3 s after the screen goes
   still it re-encodes the last frame once to sharpen it; keyframe requests also re-encode it.
-- `VideoEncoder.swift`: VideoToolbox H.264 (High) or HEVC (Main, `--codec hevc`), no B-frames, real time,
+- `VideoEncoder.swift`: VideoToolbox H.264 (High) or HEVC (Main, `--codec hevc`), no B-frames, `RealTime` off (below),
   output as length-prefixed NALs + avcC / hvcC. Only a bitrate cap (`--bitrate`): both hardware encoders
   ignore `Quality`, and `MaxAllowedFrameQP` overrides the cap (and is ignored if changed mid-session).
   Keyframes only on request; `MaxKeyFrameInterval` is Int32.max because 0 measured a keyframe every ~2 s.
@@ -45,9 +45,13 @@ Not for the App Store, because it uses a private API.
   Every 2 s while frames flow, a stats line (capture, encode, sent/skipped, Mbit/s, ack round trip,
   iPad decode) is printed and shown on the overlay. Use it before guessing at performance.
   Its "encoded in N ms" is almost all VideoToolbox: everything after the encoder's callback (copy,
-  server queue, send) measured 0.1 ms. The encoder itself takes ~10 ms at 2048×2668, but the same
-  build measured 26–43 ms in some runs. Not explained by App Nap, colour tags, capture buffers,
-  or GPU / memory load (all tested); cause outside the process. `EnableLowLatencyRateControl` is slower (12.5 ms).
+  server queue, send) measured 0.1 ms. The encoder itself takes ~11 ms at 2732×2048. The 26–43 ms seen in
+  some runs was the hardware encoder's real-time mode: in some sessions, ~7 s into steady encoding, it
+  steps to stretching each frame towards the frame interval (27 ms at 30 fps). Found 2026-11-07 with a
+  separate benchmark (same settings, synthetic frames; it happened with PortraitDisplay stopped too,
+  but not in every run). Fix: `RealTime` off, ~11 ms throughout. `EnableLowLatencyRateControl` also
+  avoids it but costs 12.5 ms; `MaximizePowerEfficiency` false, faked 60 fps timestamps don't; an
+  `ExpectedFrameRate` of 120 only delays it.
 - `SetupPage.swift` / `ViewerPage.swift`: the iPad pages, raw Swift strings with `__PLACEHOLDER__`s.
   The setup page forwards to HTTPS once the cert is trusted. The viewer decodes with `VideoDecoder`
   and draws the newest frame on a canvas (reconnect, wake lock, overlay showing the iPad's size).
