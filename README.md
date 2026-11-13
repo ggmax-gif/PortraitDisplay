@@ -131,7 +131,7 @@ swift run -c release PortraitHost
 
 The first build takes about a minute. The first time it runs, macOS asks to let Terminal record the
 screen. Allow it, quit Terminal completely with ⌘Q, reopen it and run the command again. Terminal
-then prints an address like `http://192.168.1.23:8080/?t=…`. Press Ctrl+C to stop; the virtual
+then prints an address like `http://192.168.1.23:8080/#t=…`. Press Ctrl+C to stop; the virtual
 monitor disappears with it.
 
 ## In Safari on the iPad
@@ -224,7 +224,9 @@ Other options (`--help` lists them all):
 - University and other managed networks (eduroam, for example) often block devices from reaching
   each other. On those, turn on your phone's hotspot and join both the Mac and the iPad to it. The
   stream stays between the devices, so it uses almost no mobile data.
-- The page needs the `?t=…` key in the link, so other people on the network can't view your screen.
+- The page needs the `#t=…` key in the link, so other people on the network can't view your screen.
+  The key sits after `#` because the first page is plain HTTP and browsers don't send that part; it
+  only crosses the network over HTTPS.
   The key is saved in `~/.portraitdisplay-token`; delete that file to get a new one.
 - The virtual monitor uses a private macOS API, the same one BetterDisplay uses, so this can't go on
   the App Store.

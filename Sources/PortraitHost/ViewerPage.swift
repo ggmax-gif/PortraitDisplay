@@ -29,7 +29,7 @@ enum ViewerPage {
     <!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
     <body style="background:#000;color:#ccc;font:17px -apple-system,sans-serif;padding:2em">
     <h2>Link missing its key</h2>
-    <p>Open the full address printed in the Mac's Terminal window (it ends in <code>?t=…</code>).</p>
+    <p>Open the full address printed in the Mac's Terminal window (it ends in <code>#t=…</code>).</p>
     </body>
     """
 

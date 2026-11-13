@@ -137,12 +137,14 @@ enum TokenStore {
     static func loadOrCreate() -> String {
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".portraitdisplay-token")
+        let ownerOnly: [FileAttributeKey: Any] = [.posixPermissions: 0o600]
         if let saved = try? String(contentsOf: url, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines), saved.count >= 8 {
+            try? FileManager.default.setAttributes(ownerOnly, ofItemAtPath: url.path)   // older versions wrote 0644
             return saved
         }
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
-        try? token.write(to: url, atomically: true, encoding: .utf8)
+        FileManager.default.createFile(atPath: url.path, contents: Data(token.utf8), attributes: ownerOnly)
         return String(token)
     }
 }

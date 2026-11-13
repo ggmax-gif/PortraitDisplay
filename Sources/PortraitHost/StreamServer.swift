@@ -267,9 +267,10 @@ final class StreamServer {
                 // The setup page fetches this to find out whether the iPad trusts the certificate yet.
                 status = "204 No Content"; contentType = "text/plain"
                 extraHeaders = "Access-Control-Allow-Origin: *\r\n"
-            case (false, "/", true):
+            case (false, "/", _):
+                // No key needed or wanted here: this listener is unencrypted (see SetupPage).
                 print("Setup page opened (\(self.endpointName(connection))).")
-                body = Data(SetupPage.html(token: self.token, pagePort: self.config.pagePort).utf8)
+                body = Data(SetupPage.html(pagePort: self.config.pagePort).utf8)
             case (false, "/PortraitDisplay-CA.cer", _):
                 print("Certificate downloaded (\(self.endpointName(connection))).")
                 contentType = "application/x-x509-ca-cert"
@@ -332,6 +333,7 @@ private final class Viewer {
     /// Frames sent but not yet acknowledged. A few in flight keeps the pipe full on Wi-Fi;
     /// beyond that, frames would just queue up as lag.
     private static let maxInFlight = 4
+    private static let helloTimeout = 5.0
 
     let link: ViewerLink
     unowned let server: StreamServer
@@ -363,6 +365,11 @@ private final class Viewer {
             guard let self, !self.closed, let text = String(data: data, encoding: .utf8) else { return }
             self.handle(text)
         }, onClose: { [weak self] in self?.close() })
+        // Both viewers say hello as soon as they connect; a silent connection would otherwise stay forever.
+        queue.asyncAfter(deadline: .now() + Self.helloTimeout) { [weak self] in
+            guard let self, !self.authenticated else { return }
+            self.close()
+        }
     }
 
     private func handle(_ text: String) {

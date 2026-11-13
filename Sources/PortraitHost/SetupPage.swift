@@ -2,10 +2,13 @@ import Foundation
 
 /// Plain-HTTP page the printed link opens. If the iPad already trusts the certificate it forwards
 /// straight to the HTTPS viewer; otherwise it walks through installing the certificate once.
+///
+/// This page is unencrypted, so it holds no secret and anyone may load it. The link carries the key
+/// after "#" (`…:8080/#t=<key>`), which browsers keep to themselves; the script here hands it to the
+/// HTTPS page, the first place it crosses the network.
 enum SetupPage {
-    static func html(token: String, pagePort: UInt16) -> String {
+    static func html(pagePort: UInt16) -> String {
         template
-            .replacingOccurrences(of: "__TOKEN__", with: token)
             .replacingOccurrences(of: "__PAGE_PORT__", with: String(pagePort))
             .replacingOccurrences(of: "__CA_NAME__", with: Certificates.caName)
     }
@@ -31,6 +34,8 @@ enum SetupPage {
     </head>
     <body>
     <p id="checking">Checking the secure connection…</p>
+    <p id="nokey" style="display:none">This link is incomplete. Open the full link from the Mac
+    (it ends in <code>#t=…</code>): copy it from the Portrait Display menu, or scan its QR code.</p>
     <div id="steps">
       <h2>One-time setup</h2>
       <p>The video decoder in Safari only runs on secure (https) pages, so the iPad has to trust
@@ -49,10 +54,18 @@ enum SetupPage {
     <script>
     (() => {
       const target = `https://${location.hostname}:__PAGE_PORT__`;
+      // Links from older versions had the key as "?t="; they still work.
+      const key = new URLSearchParams(location.hash.slice(1)).get("t")
+               || new URLSearchParams(location.search).get("t") || "";
+      if (!/^[A-Za-z0-9]+$/.test(key)) {
+        document.getElementById("checking").style.display = "none";
+        document.getElementById("nokey").style.display = "block";
+        return;
+      }
       async function check() {
         try {
           await fetch(`${target}/ping`, { mode: "no-cors", cache: "no-store" });
-          location.replace(`${target}/?t=__TOKEN__`);
+          location.replace(`${target}/?t=${key}`);
         } catch (_) {
           document.getElementById("checking").style.display = "none";
           document.getElementById("steps").style.display = "block";

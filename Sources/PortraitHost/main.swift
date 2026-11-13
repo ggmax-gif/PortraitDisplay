@@ -113,8 +113,9 @@ if addresses.isEmpty {
     print("   (no network found – connect the Mac to Wi-Fi)")
 }
 for entry in addresses {
-    print("   http://\(entry.address):\(config.httpPort)/?t=\(token)    [\(entry.interface)]")
-    Status.emit("url", "http://\(entry.address):\(config.httpPort)/?t=\(token)")
+    // The key goes after "#", so this unencrypted request doesn't carry it (see SetupPage).
+    print("   http://\(entry.address):\(config.httpPort)/#t=\(token)    [\(entry.interface)]")
+    Status.emit("url", "http://\(entry.address):\(config.httpPort)/#t=\(token)")
 }
 print("""
 

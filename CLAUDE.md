@@ -37,7 +37,8 @@ Not for the App Store, because it uses a private API.
   `~/.portraitdisplay/` (name-constrained to private IPs) is installed on the iPad once; a server cert
   for the current IPs is issued with `/usr/bin/openssl` each run and loaded in memory only.
 - `StreamServer.swift`: Network.framework. HTTP on `--port` (default 8080) serves the setup page and
-  the CA. HTTPS on port+1 serves the viewer page and manifest. Secure WebSocket on port+2: client sends
+  the CA, to anyone: the link is `…:8080/#t=<key>`, so the key never crosses plain HTTP (the page's script
+  forwards it to HTTPS; old `?t=` links still work). A connection with no hello after 5 s is closed. HTTPS on port+1 serves the viewer page and manifest. Secure WebSocket on port+2: client sends
   `hello <token>` (`Hello` parses it; the native app sends `native`, plus `size=WxH`, `orientation=<deg>` and `expires=<unix>`,
   re-emitted as `@ipad-size` / `@ipad-expires`), server sends codec config (JSON text) before keyframes and frames as binary
   (1-byte keyframe flag + AVCC). Client sends `ack` per frame, `key` after a decoder error, `d <ms>`
