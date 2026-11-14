@@ -8,8 +8,11 @@ enum Settings {
         static let bitrate = "bitrate", codec = "codec", port = "port", input = "input"
         static let onDemand = "onDemand", linger = "linger", startOnLaunch = "startOnLaunch"
         static let matchIPad = "matchIPad"
-        /// Not a setting: when the iPad app's install expires, as it last reported.
-        static let iPadAppExpires = "iPadAppExpires"
+        /// Not settings: when the iPad app's install expires, as it last reported; the expiry date the
+        /// renewal reminder went out for; and the last iPad app's model and iPadOS, for diagnostics.
+        static let iPadAppExpires = "iPadAppExpires", remindedExpiry = "remindedExpiry", iPadDevice = "iPadDevice"
+        /// Why macOS refused notification permission, if it did (the reminder then uses the app's own alert).
+        static let notificationError = "notificationError"
         /// Advanced: extra host options, e.g. `defaults write com.danielfung.PortraitDisplay hostArguments -array --fps 90`.
         static let extraArguments = "hostArguments"
     }

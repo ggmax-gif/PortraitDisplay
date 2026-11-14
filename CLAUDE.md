@@ -39,8 +39,8 @@ Not for the App Store, because it uses a private API.
 - `StreamServer.swift`: Network.framework. HTTP on `--port` (default 8080) serves the setup page and
   the CA, to anyone: the link is `…:8080/#t=<key>`, so the key never crosses plain HTTP (the page's script
   forwards it to HTTPS; old `?t=` links still work). A connection with no hello after 5 s is closed. HTTPS on port+1 serves the viewer page and manifest. Secure WebSocket on port+2: client sends
-  `hello <token>` (`Hello` parses it; the native app sends `native`, plus `size=WxH`, `orientation=<deg>` and `expires=<unix>`,
-  re-emitted as `@ipad-size` / `@ipad-expires`), server sends codec config (JSON text) before keyframes and frames as binary
+  `hello <token>` (`Hello` parses it; the native app sends `native`, plus `size=WxH`, `orientation=<deg>`, `expires=<unix>` and `model=… os=…`,
+  re-emitted as `@ipad-size` / `@ipad-expires` / `@ipad-device`), server sends codec config (JSON text) before keyframes and frames as binary
   (1-byte keyframe flag + AVCC). Client sends `ack` per frame, `key` after a decoder error, `d <ms>`
   (decode time), `o <deg>` when the app turns, and input messages (`c`/`p`/`s …`). At most 4 unacked frames per iPad.
   Every 2 s while frames flow, a stats line (capture, encode, sent/skipped, Mbit/s, ack round trip,
@@ -92,8 +92,12 @@ Not for the App Store, because it uses a private API.
   The host lives in `Contents/Helpers`: from `Contents/MacOS` it registered as a second app with the same
   bundle ID. "Match the iPad app's screen size" (default on) saves `@ipad-size` and restarts the host,
   only while one iPad is connected (two of different sizes would restart each other). Unpair iPads…
-  deletes `~/.portraitdisplay/direct-wifi.key`; Reinstall iPad App opens `scripts/install-ipad.sh` in
+  deletes `~/.portraitdisplay/direct-wifi.key`; Renew iPad App opens `scripts/install-ipad.sh` in
   Terminal (checkout path from Info.plist `PortraitDisplaySource`, written by make-app.sh).
+  `RenewalReminder.swift`: a reminder a day before the iPad app expires, once per expiry date. macOS
+  refuses notification permission for this self-signed app without asking (UNErrorDomain 1, seen
+  2026-11-14), so the fallback, the app's own alert while it runs, is what actually fires here.
+  `Diagnostics.swift`: Copy Diagnostics for bug reports; only allowlisted log lines, link key redacted (tested).
 - `Sources/Shared/`: code both sides compile (SwiftPM target for the host, framework target in
   `iPad/project.yml` for the app): `MessageFrames`, `DirectWiFiTLS` + `Pairing`, `Gestures` + `TapSnapper`.
 - `scripts/install-ipad.sh`: team ID from the Apple Development certificate's OU, first physical iPad from

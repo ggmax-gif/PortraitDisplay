@@ -171,7 +171,7 @@ as the flow control already does when an iPad falls behind.
 - With a free Apple ID, Xcode installs the app for 7 days; after that it won't open until it's
   rebuilt and reinstalled. A paid developer account (USD 99 a year) makes an install last a year.
   The app reads the expiry from its provisioning profile and tells the Mac, whose menu shows it and
-  offers Reinstall iPad App (`scripts/install-ipad.sh`). Reinstalling only moves the date with a new
+  offers Renew iPad App (`scripts/install-ipad.sh`), with a reminder a day before. Reinstalling only moves the date with a new
   profile: Xcode reuses its cached one until it expires, so the script sets that aside first.
 - The iPad has to trust the Mac ("Trust This Computer"), and Developer Mode has to be on (Settings →
   Privacy & Security) to run a self-built app. The app and the Mac both ask once for Local Network
@@ -185,7 +185,7 @@ as the flow control already does when an iPad falls behind.
 | usbmuxd `Connect` to an app's port doesn't work on iPadOS 27 (the protocol is private) | Ruled out on 2026-10-27: it works, at 0.31 ms | |
 | Direct Wi-Fi's long tail makes it feel no better than the router | Pencil and scrolling over `awdl0` still stutter | USB, or the router path |
 | `AVSampleBufferDisplayLayer` adds a frame or more of delay | Visible delay, or a high decode time | `VTDecompressionSession` with Metal |
-| Reinstalling the free install every 7 days gets tedious | The app stops opening | The menu's countdown and Reinstall iPad App, a paid account, or the Safari page |
+| Reinstalling the free install every 7 days gets tedious | The app stops opening | The menu's countdown, a reminder a day before and Renew iPad App, a paid account, or the Safari page |
 | The app only runs in the foreground | Switching apps on the iPad drops the stream | The same as the web page today; the on-demand display stays for the grace period |
 
 ## Plan

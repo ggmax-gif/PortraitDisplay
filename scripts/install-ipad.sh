@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the native iPad app, installs it on your iPad and opens it. Run it again before the install
-# expires: 7 days with a free Apple account. The menu bar app shows when, and its Reinstall iPad App
+# expires: 7 days with a free Apple account. The menu bar app shows when, and its Renew iPad App
 # runs this script in Terminal.
 #
 # Needs full Xcode signed into your Apple ID, XcodeGen (brew install xcodegen), and the iPad paired

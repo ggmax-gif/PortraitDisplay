@@ -90,3 +90,14 @@ final class OrientationTests: XCTestCase {
         XCTAssertNil(Hello("hello 3f9a1c2b7d4e")?.orientation)
     }
 }
+
+extension HelloTests {
+    func testAppSaysWhichIPadItRunsOn() {
+        let hello = Hello("hello native size=1024x1366 model=iPad8,12 os=27.2")
+        XCTAssertEqual(hello?.model, "iPad8,12")
+        XCTAssertEqual(hello?.os, "27.2")
+        // Only letters, digits, "," and ".": these go into status lines and the log.
+        XCTAssertEqual(Hello("hello native model=iPad8,12\n@error\tx")?.model, "iPad8,12errorx")
+        XCTAssertNil(Hello("hello native os=")?.os)
+    }
+}

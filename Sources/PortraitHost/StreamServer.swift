@@ -165,13 +165,14 @@ final class StreamServer {
     }
 
     fileprivate func viewerAuthenticated(_ viewer: Viewer) {
-        print("iPad connected (\(viewer.link.name), "
+        print("iPad connected (\(viewer.link.name), " + (viewer.device.map { "\($0), " } ?? "")
               + "\(viewer.decodesHEVC ? "decodes HEVC" : "H.264 only")). Viewers: \(authenticatedCount)")
         Status.emit("viewers", String(authenticatedCount))
         emitLinks()
         // For the menu bar app's "Match the iPad app's screen size"; after @viewers so it knows the count.
         if let size = viewer.screenSize { Status.emit("ipad-size", "\(size.width) \(size.height)") }
         if let expires = viewer.appExpires { Status.emit("ipad-expires", String(expires)) }
+        if let device = viewer.device { Status.emit("ipad-device", device) }
         // Before the count, so an on-demand display is created the right way round.
         if let degrees = viewer.orientation { onOrientation?(degrees) }
         onViewerCount?(authenticatedCount)
@@ -306,13 +307,16 @@ final class StreamServer {
 
 /// An iPad's first message: "hello <token>" from Safari or "hello native" from the app, then
 /// "hevc" if its decoder supports HEVC, and from the app "size=WxH", its screen in portrait points,
-/// "orientation=<degrees>" (see `Orientation`) and "expires=<Unix time>", when its install stops launching.
+/// "orientation=<degrees>" (see `Orientation`), "expires=<Unix time>", when its install stops launching,
+/// and "model=iPad8,12 os=27.2" for diagnostics.
 struct Hello {
     let key: String
     private(set) var decodesHEVC = false
     private(set) var size: (width: Int, height: Int)?
     private(set) var orientation: Int?
     private(set) var expires: Int?
+    private(set) var model: String?
+    private(set) var os: String?
 
     init?(_ text: String) {
         let words = text.split(separator: " ")
@@ -324,7 +328,15 @@ struct Hello {
             if numbers.count == 2 { size = (numbers[0], numbers[1]) }
             if word.hasPrefix("expires="), let time = Int(word.dropFirst(8)) { expires = time }
             if word.hasPrefix("orientation="), let degrees = Int(word.dropFirst(12)) { orientation = degrees }
+            if word.hasPrefix("model=") { model = Self.plain(word.dropFirst(6)) }
+            if word.hasPrefix("os=") { os = Self.plain(word.dropFirst(3)) }
         }
+    }
+
+    /// These end up in status lines and the log, so only letters, digits, "," and "." (at most 32).
+    private static func plain(_ value: Substring) -> String? {
+        let allowed = value.prefix(32).filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "," || $0 == ".") }
+        return allowed.isEmpty ? nil : String(allowed)
     }
 }
 
@@ -342,6 +354,7 @@ private final class Viewer {
     private(set) var screenSize: (width: Int, height: Int)?
     private(set) var appExpires: Int?
     private(set) var orientation: Int?
+    private(set) var device: String?   // e.g. "iPad8,12, iPadOS 27.2"
     private var inFlight = 0
     private var waitingForKey = true     // deltas are useless until the next keyframe
     private var keyRequested = false
@@ -380,6 +393,7 @@ private final class Viewer {
             screenSize = hello.size
             appExpires = hello.expires
             orientation = hello.orientation
+            device = hello.model.map { model in hello.os.map { "\(model), iPadOS \($0)" } ?? model }
             authenticated = true
             server.viewerAuthenticated(self)
             resync()

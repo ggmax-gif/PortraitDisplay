@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var settingsWindow = SettingsWindowController(status: hostStatus)
     private var statusItem: NSStatusItem!
     private var qrWindow: NSWindow?
+    private var renewal: RenewalNotifier?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Settings.register()
@@ -25,7 +26,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self, self.host.viewers == 1, Settings.adoptIPadSize(width: width, height: height) else { return }
             self.host.restart()
         }
-        host.onIPadExpires = { UserDefaults.standard.set($0, forKey: Settings.Key.iPadAppExpires) }
+        if Bundle.main.bundleURL.pathExtension == "app" {
+            let canRenew = Self.installScript != nil
+            renewal = RenewalNotifier(canRenew: canRenew, onRenew: { [weak self] in self?.renewIPadApp() },
+                                      onAlert: { [weak self] title, body in
+                guard let self, self.alert(title, body, button: canRenew ? "Renew" : nil) else { return }
+                self.renewIPadApp()
+            })
+        }
+        host.onIPadExpires = { [weak self] expires in
+            UserDefaults.standard.set(expires, forKey: Settings.Key.iPadAppExpires)
+            self?.renewal?.update(expires: expires)
+        }
+        host.onIPadDevice = { UserDefaults.standard.set($0, forKey: Settings.Key.iPadDevice) }
+        if let expires = UserDefaults.standard.object(forKey: Settings.Key.iPadAppExpires) as? Date {
+            renewal?.update(expires: expires)
+        }
         updateIcon()
         if Settings.startOnLaunch { host.start() }
     }
@@ -153,12 +169,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(.separator())
             let when = RelativeDateTimeFormatter().localizedString(for: expires, relativeTo: Date())
             menu.addItem(label(expires < Date() ? "iPad app expired \(when)" : "iPad app expires \(when)"))
-            if Self.installScript != nil { menu.addItem(item("Reinstall iPad App", #selector(reinstallIPadApp))) }
+            if Self.installScript != nil { menu.addItem(item("Renew iPad App", #selector(renewIPadApp))) }
         }
 
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(showSettings), key: ","))
         menu.addItem(item("Show Log", #selector(showLog)))
+        menu.addItem(item("Copy Diagnostics", #selector(copyDiagnostics)))
         if FileManager.default.fileExists(atPath: Self.pairingKeyURL.path) {
             menu.addItem(item("Unpair iPads…", #selector(unpair)))
         }
@@ -258,6 +275,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(HostProcess.logURL)
     }
 
+    /// For a bug report: see `Diagnostics` for what goes in and what is kept out.
+    @objc private func copyDiagnostics() {
+        let defaults = UserDefaults.standard
+        let info = Bundle.main.infoDictionary ?? [:]
+        let expires = defaults.object(forKey: Settings.Key.iPadAppExpires) as? Date
+        var facts = Diagnostics.machine()
+        facts += [
+            ("Portrait Display", "\(info["CFBundleShortVersionString"] as? String ?? "?") (build \(info["CFBundleVersion"] as? String ?? "?"))"),
+            ("Host", host.state == .stopped ? "stopped" : "running with " + (host.runningArguments ?? []).joined(separator: " ")),
+            ("iPads connected", host.viewers == 0 ? "none" : "\(host.viewers) (\(host.links.joined(separator: ", ")))"),
+            ("Last iPad app", defaults.string(forKey: Settings.Key.iPadDevice) ?? "none seen yet"),
+            ("iPad app expires", expires.map { ISO8601DateFormatter().string(from: $0) } ?? "unknown"),
+        ]
+        if host.needsAccessibility { facts.append(("Touch input", "needs Accessibility permission")) }
+        let log = (try? String(contentsOf: HostProcess.logURL, encoding: .utf8)) ?? ""
+        let excerpt = Diagnostics.excerpt(log: log, token: Diagnostics.savedToken())
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Diagnostics.report(facts: facts, excerpt: excerpt), forType: .string)
+        if alert("Diagnostics copied", "This Mac's model and macOS version, the settings, the last iPad app's model and "
+                 + "\(excerpt.count) recent stats and connection lines from the log, without the link's key. "
+                 + "Paste them into a GitHub issue.", button: "Open GitHub Issues") {
+            NSWorkspace.shared.open(URL(string: "https://github.com/ggmax-gif/PortraitDisplay/issues/new")!)
+        }
+    }
+
     /// scripts/install-ipad.sh in the checkout this app was built from (make-app.sh records it).
     private static let installScript: URL? = {
         guard let source = Bundle.main.object(forInfoDictionaryKey: "PortraitDisplaySource") as? String else { return nil }
@@ -266,7 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }()
 
     /// In Terminal, so the build's progress and any signing problem are visible.
-    @objc private func reinstallIPadApp() {
+    @objc private func renewIPadApp() {
         guard let script = Self.installScript,
               let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { return }
         NSWorkspace.shared.open([script], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())

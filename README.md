@@ -38,7 +38,7 @@ works).
 - A menu bar app with Start and Stop, a QR code for the iPad link and live stats. The display appears
   when the iPad connects and goes away after it leaves.
 - Hardware H.264 or HEVC, and only changed frames are sent, so a still screen uses almost no network.
-- MIT licensed, no third-party dependencies, and 42 unit tests that run on every push.
+- MIT licensed, no third-party dependencies, and 48 unit tests that run on every push.
 
 A 10-slide overview, with the measured latency and how it works:
 [docs/PortraitDisplay-deck.pdf](docs/PortraitDisplay-deck.pdf).
@@ -98,7 +98,10 @@ the table below can go in an advanced default, which is added last and overrides
 defaults write com.danielfung.PortraitDisplay hostArguments -array --fps 90
 ```
 
-Each run's output is in `~/Library/Logs/PortraitDisplay.log` (Show Log in the menu).
+Each run's output is in `~/Library/Logs/PortraitDisplay.log` (Show Log in the menu). To report a
+problem, choose Copy Diagnostics and paste the result into a GitHub issue. It copies the Mac's model
+and macOS version, the settings, the iPad's model and the recent stats and connection lines from the
+log, without the link's key.
 
 ## Or use the iPad app
 
@@ -107,7 +110,8 @@ certificate, and a round trip takes a few milliseconds rather than tens. The men
 whenever the iPad is plugged in and the app is open, and the menu then says "iPad connected (USB)".
 Installing it needs Xcode and your Apple ID. After a one-time setup (`iPad/README.md`), `scripts/install-ipad.sh` builds the app and
 installs it on the iPad. With a free Apple account an install lasts 7 days: the menu shows when it
-runs out, and Reinstall iPad App runs the script again for another 7 days.
+runs out, and Renew iPad App runs the script again for another 7 days. A day before it runs out, the
+Mac reminds you with a Renew button, as long as Portrait Display is running.
 
 After the first USB connection, the app also works without the cable, over direct peer-to-peer Wi-Fi
 (the link AirDrop uses), so it doesn't depend on the router or on the network letting devices reach

@@ -23,6 +23,8 @@ final class HostProcess {
     var onIPadSize: ((Int, Int) -> Void)?
     /// An iPad app connected and said when its install expires.
     var onIPadExpires: ((Date) -> Void)?
+    /// An iPad app connected: its model and iPadOS, e.g. "iPad8,12, iPadOS 27.2".
+    var onIPadDevice: ((String) -> Void)?
 
     static let logURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/PortraitDisplay.log")
@@ -135,6 +137,9 @@ final class HostProcess {
             return
         case "ipad-expires":
             if let time = Double(value) { onIPadExpires?(Date(timeIntervalSince1970: time)) }
+            return
+        case "ipad-device":
+            onIPadDevice?(value)
             return
         default: return
         }

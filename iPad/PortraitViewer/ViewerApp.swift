@@ -108,8 +108,10 @@ final class ViewerController: UIViewController {
         let size = view.window?.windowScene?.screen.bounds.size ?? view.bounds.size
         let w = Int(min(size.width, size.height)), h = Int(max(size.width, size.height))
         let expires = Self.expires.map { " expires=\(Int($0.timeIntervalSince1970))" } ?? ""
+        // The model and iPadOS version go into the Mac's Copy Diagnostics.
         link.send("hello native" + (VideoView.decodesHEVC ? " hevc" : "") + " size=\(w)x\(h)"
-                  + " orientation=\(orientation)" + expires)
+                  + " orientation=\(orientation)" + expires
+                  + " model=\(Self.modelIdentifier) os=\(UIDevice.current.systemVersion)")
         saidHello = true
     }
 
@@ -148,10 +150,17 @@ final class ViewerController: UIViewController {
             : "Start Portrait Display on the Mac. It connects over the USB cable, or directly over Wi-Fi when the cable isn't plugged in."
         if let expires = Self.expires, expires.timeIntervalSinceNow < 2 * 86400 {
             let when = RelativeDateTimeFormatter().localizedString(for: expires, relativeTo: Date())
-            text += "\n\nThis install stops opening \(when). Reinstall it from the Mac: Portrait Display menu → Reinstall iPad App."
+            text += "\n\nThis install stops opening \(when). Renew it from the Mac: Portrait Display menu → Renew iPad App."
         }
         message.text = text
     }
+
+    /// The hardware model, e.g. "iPad8,12" for the 12.9-inch iPad Pro (4th generation).
+    private static let modelIdentifier: String = {
+        var info = utsname()
+        uname(&info)
+        return withUnsafeBytes(of: info.machine) { String(decoding: $0.prefix(while: { $0 != 0 }), as: UTF8.self) }
+    }()
 
     /// When this install stops launching: its provisioning profile's expiry, 7 days after installing
     /// with a free Apple account (a year with a paid one). The Mac's menu shows it too.
